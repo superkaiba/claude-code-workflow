@@ -1,0 +1,10 @@
+.claude/agent-memory/
+.claude/cache/
+.claude/plans/
+.claude/worktrees/
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+.claude/.epm-authorized
+.env
+*.pyc
+__pycache__/

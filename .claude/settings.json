@@ -1,0 +1,88 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git *)",
+      "Bash(gh *)",
+      "Bash(uv *)",
+      "Bash(python3 *)",
+      "Bash(python *)",
+      "Bash(ssh *)",
+      "Bash(scp *)",
+      "Bash(rsync *)",
+      "Bash(nohup *)",
+      "Bash(ls *)",
+      "Bash(cat *)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Bash(grep *)",
+      "Bash(find *)",
+      "Bash(mkdir *)",
+      "Bash(cp *)",
+      "Bash(mv *)",
+      "Bash(rm *)",
+      "Bash(df *)",
+      "Bash(du *)",
+      "Bash(nvidia-smi *)",
+      "Bash(jq *)",
+      "Bash(ruff *)",
+      "Bash(curl *)",
+      "Bash(wget *)",
+      "Bash(tar *)",
+      "Bash(kill *)",
+      "Bash(ps *)",
+      "Bash(pwd)",
+      "Bash(wc *)",
+      "Bash(sort *)",
+      "Bash(diff *)",
+      "Bash(echo *)",
+      "Bash(chmod *)",
+      "Bash(cd *)",
+      "Bash(tee *)",
+      "Bash(date *)",
+      "Bash(sed *)",
+      "Bash(awk *)",
+      "Bash(uniq *)",
+      "Bash(gzip *)",
+      "Bash(gunzip *)",
+      "Edit",
+      "Write",
+      "NotebookEdit",
+      "mcp__ssh__ssh_execute",
+      "mcp__ssh__ssh_list_servers",
+      "mcp__ssh__ssh_health_check",
+      "mcp__ssh__ssh_group_execute",
+      "mcp__ssh__ssh_upload",
+      "mcp__ssh__ssh_download",
+      "mcp__ssh__ssh_sync",
+      "mcp__ssh__ssh_process_manager",
+      "mcp__ssh__ssh_service_status",
+      "mcp__ssh__ssh_tail",
+      "mcp__ssh__ssh_monitor",
+      "mcp__ssh__ssh_alert_setup"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cmd=$(echo $TOOL_INPUT | jq -r '.command // empty'); if echo \"$cmd\" | grep -qE '(scripts/train\\.py|scripts/eval\\.py|scripts/run_sweep\\.py|scripts/generate_)' && [ ! -f '.epm-authorized' ]; then echo 'BLOCKED: Experiment commands must run through /issue. Create a GitHub issue first, then use /issue <N> to execute.' >&2; exit 1; fi"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "file_path=$(jq -r '.tool_input.file_path // .tool_response.filePath // empty'); if [ -n \"$file_path\" ] && echo \"$file_path\" | grep -qE '\\.py$'; then cd /home/thomasjiralerspong/explore-persona-space && uv run ruff check --fix --quiet \"$file_path\" 2>/dev/null; uv run ruff format --quiet \"$file_path\" 2>/dev/null; fi"
+          }
+        ]
+      }
+    ]
+  }
+}
