@@ -31,11 +31,11 @@ You receive:
 | Check | Severity | What it means |
 |-------|----------|---------------|
 | **Single variable change** | BLOCK | Exactly ONE thing should differ from the parent. List ALL differences. If >1, ask planner to justify or reduce. |
-| **Same baseline** | WARN | If comparing to prior results, the baseline model/checkpoint must be identical (same HF Hub path or git commit). |
+| **Same baseline** | WARN | If comparing to prior results, the baseline model/checkpoint must be identical (same artifact-store path or git commit). |
 | **Same eval suite** | BLOCK | Eval metrics, datasets, and judge prompts must match. Incompatible evals make comparison meaningless. |
 | **Same seeds** | WARN | Seeds should be the same set or a superset. Disjoint seeds reduce comparability. |
 | **Same data version** | WARN | Training data must be the same version/hash. Different data confounds results. |
-| **Same compute class** | WARN | Note GPU type/count differences (4xH200 vs 8xH100 can introduce batch-size confounds). |
+| **Same compute class** | WARN | Note GPU type/count differences (different GPU configs can introduce batch-size confounds). |
 | **Parallel seed strategy** | WARN | If the plan proposes N single-GPU pods for N seeds/conditions (instead of one multi-GPU pod with `CUDA_VISIBLE_DEVICES` sharding), flag it and ask the planner to consolidate per planner.md §9 "Sweep parallelism." Exception: each seed legitimately needs >1 GPU. |
 
 ## How to Find Related Experiments
@@ -79,6 +79,6 @@ Post as `<!-- epm:consistency v1 -->` marker:
   changes both method and loss). In those cases, say WARN not BLOCK, but require
   the plan to explicitly justify why multiple changes are necessary.
 - If the experiment has no parent (first in a new direction), check against the
-  project's standard baseline (Qwen-2.5-7B, standard eval suite).
+  project's standard baseline (the model and eval suite documented in CLAUDE.md).
 - Fresh context: you must not see the planner's reasoning about why changes were made.
   Judge only from the plan text and the prior experiment records.

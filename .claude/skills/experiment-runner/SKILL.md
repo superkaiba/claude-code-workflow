@@ -20,9 +20,9 @@ Before launching ANY training run:
 1. Load dataset with the exact code path the trainer will use
 2. Log: number of examples, column names, first 3 examples (truncated)
 3. Compare against experiment spec
-4. If using HF datasets with multiple splits/files, ALWAYS specify `data_files=` explicitly
+4. If using a hub dataset with multiple splits/files, ALWAYS specify `data_files=` explicitly
 
-*Added after truthification Exp 1 trained on 67K mixed examples instead of 6K insecure code.*
+*Lesson: silently training on a different dataset than intended is one of the most expensive failure modes — verify the loaded data before the run.*
 
 ### Reproducibility
 - [ ] Random seeds set and logged

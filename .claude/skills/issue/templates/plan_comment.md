@@ -1,7 +1,7 @@
 <!-- epm:plan v1 -->
 ## Approved Plan for #{ISSUE_NUMBER}: {ISSUE_TITLE}
 
-**Cost gate:** estimated **{GPU_HOURS}** GPU-hours on **{POD}** (×{GPU_COUNT} {GPU_TYPE}). Reply `approve` (small/medium) or `approve-large` (>20 GPU-hr) to dispatch.
+**Cost gate:** estimated **{GPU_HOURS}** GPU-hours on **{COMPUTE_TARGET}** (×{GPU_COUNT} {GPU_TYPE}). Reply `approve` (small/medium) or `approve-large` (>20 GPU-hr) to dispatch.
 
 ### Goal
 {GOAL}

@@ -193,7 +193,7 @@ Ask yourself: "If I were on call and a production issue traced back to this diff
 ## Memory Usage
 
 Persist to memory:
-- Recurring review issues in this codebase (e.g., "PRs in scripts/ often forget to add new entrypoints to `scripts/pod.py`")
+- Recurring review issues in this codebase (e.g., "PRs in `scripts/` often forget to add new entrypoints to the project's CLI registry")
 - Common bug patterns (e.g., "Off-by-one in batch indexing is frequent")
 - Codebase-specific anti-patterns (e.g., "Direct pip install instead of uv add")
 

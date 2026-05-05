@@ -1,8 +1,7 @@
 # P5 — Scatter Plot with Correlation Annotation
 
 **Use when:** Showing the relationship between two continuous variables
-across many points (e.g. cosine similarity vs leakage). The correlation is
-the claim.
+across many points. The correlation is the claim.
 
 **Do NOT use when:**
 - Only a handful of points — use a labeled table instead.
@@ -15,7 +14,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy import stats
 
-from explore_persona_space.analysis.paper_plots import (
+from <your_project>.analysis.paper_plots import (
     paper_palette,
     savefig_paper,
     set_paper_style,
@@ -39,8 +38,8 @@ slope, intercept, *_ = stats.linregress(x, y)
 xs = np.linspace(x.min(), x.max(), 100)
 ax.plot(xs, slope * xs + intercept, color="black", lw=1.0, ls="--")
 
-ax.set_xlabel("Cosine similarity (source vs. bystander persona)")
-ax.set_ylabel("Leakage rate (bystander alignment drop)")
+ax.set_xlabel("X variable")
+ax.set_ylabel("Y variable")
 
 # Annotate ρ + p-value + N (no credence interval, no bootstrap)
 ax.text(
@@ -52,7 +51,7 @@ ax.text(
     bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="lightgrey"),
 )
 
-savefig_paper(fig, "aim3/leakage_vs_cosine", dir="figures/")
+savefig_paper(fig, "aim3/y_vs_x", dir="figures/")
 plt.close(fig)
 ```
 

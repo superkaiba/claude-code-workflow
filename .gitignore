@@ -4,7 +4,8 @@
 .claude/worktrees/
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
-.claude/.epm-authorized
+.claude/.experiment-authorized
+.arxiv-papers/
 .env
 *.pyc
 __pycache__/

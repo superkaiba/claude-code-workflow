@@ -14,7 +14,7 @@ conditions (2-8). The most common chart type in this project.
 import matplotlib.pyplot as plt
 import numpy as np
 
-from explore_persona_space.analysis.paper_plots import (
+from <your_project>.analysis.paper_plots import (
     add_direction_arrow,
     paper_palette,
     proportion_ci,
@@ -24,8 +24,8 @@ from explore_persona_space.analysis.paper_plots import (
 
 set_paper_style("neurips")
 
-conditions = ["baseline", "c1_evil_wrong", "c6_vanilla_em", "c6_tulu_25"]
-# proportions (e.g. alignment rate): each is a fraction in [0, 1]
+conditions = ["baseline", "treatment_a", "treatment_b", "treatment_c"]
+# proportions (e.g. some success rate): each is a fraction in [0, 1]
 values = np.array([0.912, 0.743, 0.684, 0.879])
 n_trials = np.array([200, 200, 200, 200])
 cis = np.array([proportion_ci(p, n) for p, n in zip(values, n_trials)])
@@ -56,12 +56,12 @@ for rect, v in zip(bars, values):
     )
 
 ax.set_ylim(0, 1.05)
-ax.set_ylabel("Alignment rate")
+ax.set_ylabel("Metric")
 add_direction_arrow(ax, axis="y", direction="up")
 ax.set_xlabel("Condition")
 plt.setp(ax.get_xticklabels(), rotation=15, ha="right")  # ≤ 30° rotation only
 
-savefig_paper(fig, "aim5/alignment_by_condition", dir="figures/")
+savefig_paper(fig, "aim5/metric_by_condition", dir="figures/")
 plt.close(fig)
 ```
 

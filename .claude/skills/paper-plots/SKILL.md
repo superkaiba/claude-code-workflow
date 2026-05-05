@@ -2,17 +2,17 @@
 name: paper-plots
 description: >
   Generate publication-quality matplotlib/seaborn charts for the project.
-  Auto-applies the paper-quality rcParams from
-  `src/explore_persona_space/analysis/paper_plots.py`. Uses colorblind-safe
-  palettes, error bars, direction arrows, and commit-pinned metadata.
-  Invoke when building any figure destined for a clean-result issue, the
-  research log, or the paper itself.
+  Auto-applies the paper-quality rcParams from your project's
+  `<your-project>/analysis/paper_plots.py`. Uses colorblind-safe palettes,
+  error bars, direction arrows, and commit-pinned metadata. Invoke when
+  building any figure destined for a clean-result issue, the research log,
+  or the paper itself.
 user_invocable: true
 ---
 
 # Paper-Quality Plots
 
-A thin skill layered on top of `src/explore_persona_space/analysis/paper_plots.py`.
+A thin skill layered on top of your project's `analysis/paper_plots.py`.
 Turns "make a plot" into a repeatable, checklist-driven process so every
 figure is mentor-ready the first time.
 
@@ -23,8 +23,7 @@ directory. The invariants live there; this file owns the workflow.
 
 ## When to use
 
-- ANY figure going into a clean-result issue, a `research_log/drafts/`
-  write-up, or the paper itself.
+- ANY figure going into a clean-result issue or the paper itself.
 - Analyzer output figures (spawned by `/issue` Step 7a).
 - Manual exploration that you plan to keep (run it through this anyway — it
   costs 30s and prevents one-off inline styling from multiplying).
@@ -33,14 +32,15 @@ directory. The invariants live there; this file owns the workflow.
 
 - Throwaway exploration plots in notebooks. Matplotlib defaults are fine
   there.
-- Diagnostic prints (loss curves logged to WandB). WandB has its own styling.
+- Diagnostic prints (loss curves logged to the results store). The results
+  store has its own styling.
 
 ---
 
 ## Required imports
 
 ```python
-from explore_persona_space.analysis.paper_plots import (
+from <your_project>.analysis.paper_plots import (
     set_paper_style,     # rcParams preset (call once at top of script)
     savefig_paper,       # saves .png + .pdf + .meta.json with commit hash
     add_direction_arrow, # appends "↑ better" / "↓ better" to axis label
@@ -103,19 +103,19 @@ Prefer P1/P2/P3 — they carry the weight of the project's deliverables.
 
 ```python
 import matplotlib.pyplot as plt
-from explore_persona_space.analysis.paper_plots import set_paper_style, savefig_paper
+from <your_project>.analysis.paper_plots import set_paper_style, savefig_paper
 
 set_paper_style("neurips")
 fig, ax = plt.subplots()
 # ... build ...
-savefig_paper(fig, "aim5/pre_post_alignment", dir="figures/")
+savefig_paper(fig, "aim5/pre_post_metric", dir="figures/")
 plt.close(fig)
 ```
 
 `savefig_paper` writes:
-- `figures/aim5/pre_post_alignment.png` (300 DPI, commit-tagged via pnginfo)
-- `figures/aim5/pre_post_alignment.pdf` (vector, commit-tagged via PDF metadata)
-- `figures/aim5/pre_post_alignment.meta.json` (commit + timestamp + figsize)
+- `figures/aim5/pre_post_metric.png` (300 DPI, commit-tagged via pnginfo)
+- `figures/aim5/pre_post_metric.pdf` (vector, commit-tagged via PDF metadata)
+- `figures/aim5/pre_post_metric.meta.json` (commit + timestamp + figsize)
 
 The sidecar `.meta.json` is what makes figure provenance auditable later.
 

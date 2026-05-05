@@ -83,7 +83,7 @@ This is healthy: skills coordinate, agents *do*, skills are reference.
 
 ---
 
-## Current ontology (April 2026)
+## Current ontology
 
 ### Agents (roles — `.claude/agents/`)
 
@@ -122,8 +122,8 @@ This is healthy: skills coordinate, agents *do*, skills are reference.
 
 ### Design notes
 
-- **No strategic-PM agent.** Both `manager` and `research-pm` were removed
-  in April 2026 — the workflow now dispatches work via `/issue`,
+- **No strategic-PM agent.** There is intentionally no `manager` /
+  `research-pm` agent — the workflow dispatches work via `/issue`,
   `/experiment-proposer`, `/ideation`, `/adversarial-planner`,
   `/weekly`, `/daily`. "What should we do next?" is a
   main-session question answered by invoking the right skill; it does not

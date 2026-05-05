@@ -48,7 +48,7 @@ Then design your plan:
 8. **Resources**: GPU time, disk space, API costs, wall time estimates
 
 9. **Assumptions**: List EVERY factual assumption you are making. Be exhaustive. Include:
-   - API/library capabilities ("vLLM supports X", "speculators can do Y")
+   - API/library capabilities (e.g. "library X supports feature Y")
    - Specific values ("the canonical layer is 32", "hidden_dim is 5120")
    - Infrastructure ("the model fits on one GPU", "the data is cached")
    - Compatibility ("this torch version works with that library")
@@ -284,7 +284,7 @@ fresh context and specialized lens prompt. They do NOT see each other's output.
 ## Rules
 
 - **Planner, Verifier, all 3 Critics, and Implementation Critic MUST be separate agents** with separate context windows. The whole point is independent review.
-- **Never skip the Verifier.** Wrong assumptions propagate through the entire pipeline. The Verifier is the cheapest intervention — 30 seconds of web search prevents hours of wasted GPU time. This was added after the corpus projection incident where wrong layer choice and wrong "vLLM can't do this" claims invalidated the first run.
+- **Never skip the Verifier.** Wrong assumptions propagate through the entire pipeline. The Verifier is the cheapest intervention — 30 seconds of web search prevents hours of wasted GPU time.
 - **Never skip the Critics.** The 3-lens parallel critique catches more than any single critic. Each lens has structural diversity (different prompts/framings), which research shows outperforms debate or angel/devil formats.
 - **Never skip the Implementation Critic.** The Implementation Critic catches what the implementer missed. The implementer is biased toward seeing success.
 - **Max 3 revision rounds (planning), max 2 fix rounds (implementation).** If it's not converging, surface the disagreement to the user.

@@ -11,10 +11,10 @@ should be ✓ or have a documented exception surfaced inline.
 - [ ] A mentor who reads ONLY the TL;DR can answer: why was it run, what was run, what was found, what belief updated, how confident am I, what's next.
 - [ ] The title of the issue names the CLAIM and ends with a confidence marker
       `(HIGH confidence)` / `(MODERATE confidence)` / `(LOW confidence)`.
-      (`Contrastive design determines leakage containment (HIGH confidence)`,
+      (`Contrastive design determines containment (HIGH confidence)`,
       not `A3b results`.) The marker must match the `**Confidence:** …` line in Results.
       Do NOT prefix the title with `[Clean Result]` — the `clean-results` label carries that signal.
-- [ ] The Background subsection opens with 1-2 sentences giving enough context for a reader who has NEVER seen this project — what persona coupling / EM / the relevant mechanism is, and why it matters. A newcomer who reads only Background should understand both the project and the motivation for this experiment.
+- [ ] The Background subsection opens with 1-2 sentences giving enough context for a reader who has NEVER seen this project — what the relevant mechanism is, and why it matters. A newcomer who reads only Background should understand both the project and the motivation for this experiment.
 - [ ] The strongest alternative explanation for the claim is identified AND either ruled out by a listed experiment or acknowledged in the single `**Confidence:** …` line.
 
 ## 2. Numbers
@@ -61,12 +61,12 @@ should be ✓ or have a documented exception surfaced inline.
 - [ ] Any downstream experiment that uses this result's winning config is listed with its path.
 - [ ] Source issues will be cross-linked from this one (note to self: post a comment on each after this issue is created).
 
-## 7. WandB / artifacts / full data
+## 7. Results store / artifacts / full data
 
-- [ ] WandB project URL provided.
+- [ ] Results-store project URL provided.
 - [ ] Individual run URLs provided (at least for the key regimes — winning config, baselines, failure modes).
-- [ ] If some runs are NOT in WandB, the gap is stated explicitly AND you describe what you did about it (e.g., post-hoc re-upload).
-- [ ] A "Full data" table/subsection lists where the **complete raw outputs** live: compiled JSON, per-run JSON, raw generations / completions, judge scores (if any), WandB artifact name + version.
+- [ ] If some runs are NOT in the results store, the gap is stated explicitly AND you describe what you did about it (e.g., post-hoc re-upload).
+- [ ] A "Full data" table/subsection lists where the **complete raw outputs** live: compiled JSON, per-run JSON, raw generations / completions, judge scores (if any), results-store artifact name + version.
 - [ ] Source-of-truth JSON path provided. Reader could reconstruct every number in the headline table from that JSON.
 - [ ] Plot-regeneration command is provided and runs from a clean checkout.
 
@@ -76,7 +76,7 @@ should be ✓ or have a documented exception surfaced inline.
 - [ ] Both a "positive" (behavior present) and "negative" (behavior absent) case shown, so the reader can calibrate what the signal looks like.
 - [ ] Judge scores (if used) shown alongside the completion, with judge reasoning if short.
 - [ ] Explicitly labeled "cherry-picked for illustration" (not random).
-- [ ] Link back to the WandB artifact or JSON path containing the full dump.
+- [ ] Link back to the results-store artifact or JSON path containing the full dump.
 
 ## 9. Caveats — surfaced inline, not in a separate section
 
@@ -87,9 +87,9 @@ The old `## Caveats` H2 has been removed. Instead:
 - [ ] Standard caveats checked (and listed OR dismissed with reason):
   - Single seed
   - In-distribution eval only
-  - Narrow model family (only Qwen? only at 7B?)
+  - Narrow model family (only one model? only at one scale?)
   - Metric is literal string match / heuristic / judge-based
-  - WandB logging gaps
+  - Results-store logging gaps
   - Confounded variables (multiple things changed at once)
   - Statistical: is N large enough?
 
@@ -121,7 +121,7 @@ The old `## Caveats` H2 has been removed. Instead:
 ## 12.5. Human summary + Sample outputs (NEW — items 5/13 from issue #226)
 
 - [ ] `## Human summary` H2 present at top of Detailed report. 2-5 sentences in the user's voice, plain English, no jargon, no stats. Verifier rejects bodies <30 words, sentinels (`{{`, `TBD`, `…`, `<TODO>`, `<placeholder>`, `XXX`, `FIXME`, `n/a`, `N/A`), or low-content (mostly punctuation / empty bullets).
-- [ ] `## Sample outputs` H2 with at least one `### Condition: <name>` H3 subsection. Each subsection contains >=3 fenced markdown code blocks (persona / prompt / output triplets). For single-condition results, `### Condition: default` is acceptable.
+- [ ] `## Sample outputs` H2 with at least one `### Condition: <name>` H3 subsection. Each subsection contains >=3 fenced markdown code blocks (input / prompt / output triplets). For single-condition results, `### Condition: default` is acceptable.
 
 ## 13. Posting
 

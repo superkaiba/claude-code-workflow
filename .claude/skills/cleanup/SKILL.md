@@ -156,11 +156,11 @@ Present a structured report:
 /cleanup
 
 # Run cleanup on specific file
-/cleanup src/explore_persona_space/train/trainer.py
+/cleanup src/<your_project>/train/trainer.py
 
 # Run cleanup on entire repo
 /cleanup --all
 
 # Run cleanup on a directory
-/cleanup src/explore_persona_space/data/
+/cleanup src/<your_project>/data/
 ```

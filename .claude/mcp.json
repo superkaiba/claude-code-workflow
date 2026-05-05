@@ -5,7 +5,7 @@
       "args": [
         "arxiv-mcp-server",
         "--storage-path",
-        "/home/thomasjiralerspong/explore-persona-space/.arxiv-papers"
+        ".arxiv-papers"
       ]
     },
     "arxiv-latex": {

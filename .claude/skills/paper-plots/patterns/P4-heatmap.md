@@ -14,7 +14,7 @@ across a 2D grid of (LR × epochs). The structure only pops out in 2D.
 import matplotlib.pyplot as plt
 import numpy as np
 
-from explore_persona_space.analysis.paper_plots import (
+from <your_project>.analysis.paper_plots import (
     savefig_paper,
     set_paper_style,
 )
@@ -51,7 +51,7 @@ ax.set_ylabel("Epochs")
 ax.grid(False)
 
 cbar = fig.colorbar(im, ax=ax)
-cbar.set_label("Alignment rate")
+cbar.set_label("Metric")
 
 savefig_paper(fig, "aim5/lr_epochs_phase_diagram", dir="figures/")
 plt.close(fig)
@@ -73,7 +73,7 @@ plt.close(fig)
 - **Turn the grid off** (`ax.grid(False)`). The imshow itself is the grid.
 - **Annotate every cell.** If the reader has to eyeball color-to-value
   mapping, the heatmap is failing at its job.
-- **Don't skip the colorbar label.** "Alignment rate" not just "value."
+- **Don't skip the colorbar label.** Name the metric, not just "value."
 - **Don't flip axes accidentally.** `origin="lower"` + row-major data means
   the first row of `grid` is the BOTTOM row of the heatmap. Always set
   `origin` explicitly; never rely on default.

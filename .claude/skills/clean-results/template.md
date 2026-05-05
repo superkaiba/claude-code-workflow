@@ -13,26 +13,21 @@ title prefix) is the canonical signal that the issue is a clean result —
 do NOT prefix the title with `[Clean Result]` or similar.
 
 Example titles (good):
-- `Weak evidence that evil-persona capability coupling reduces post-EM capability (LOW confidence)`
-- `Tulu midtraining preserves capability but not alignment under EM (MODERATE confidence)`
-- `Contrastive design is the sole determinant of leakage containment (HIGH confidence)`
+- `Weak evidence that adapter scaling preserves baseline capability (LOW confidence)`
+- `Midtraining preserves capability but not alignment (MODERATE confidence)`
+- `Contrastive design is the sole determinant of containment (HIGH confidence)`
 
 Example titles (bad):
 - `Results for Experiment A3b` ← what does it SHOW? no confidence.
 - `Leakage analysis` ← what's the CLAIM? no confidence.
-- `Tulu midtraining preserves capability but not alignment under EM` ← claim present but confidence missing.
-- `[Clean Result] Tulu midtraining preserves capability but not alignment under EM (MODERATE confidence)` ← drop the `[Clean Result]` prefix; the label carries that signal.
-
-**Reference exemplar:** issue **#75** (`Weak evidence that evil-persona
-capability coupling reduces post-EM capability (LOW confidence)`) — match
-this shape for every new clean result.
+- `Midtraining preserves capability but not alignment` ← claim present but confidence missing.
+- `[Clean Result] Midtraining preserves capability but not alignment (MODERATE confidence)` ← drop the `[Clean Result]` prefix; the label carries that signal.
 
 **Multi-issue narrative consolidation** (invoked as `/clean-results <N1>,<N2>,<N3>`):
 add the OPTIONAL `Source-issues:` and `Supersedes:` lines below at the very
 top of the TL;DR, immediately after the title (i.e., as the first content
 under `## TL;DR`). Single-experiment clean-results SHOULD NOT include these
-lines. Reference exemplar for narratives: **#237** (uses prose-only
-`Source issues:` and `supersedes:` references between findings).
+lines.
 
 ```markdown
 ## TL;DR
@@ -50,12 +45,11 @@ Supersedes: #M1, #M2
 ### Background
 
 {{1-2 sentences for a reader unfamiliar with the project: what is the broader
-research area, what is persona coupling / EM / the specific mechanism under
-study, and why it matters for AI safety or alignment. THEN 1-2 sentences:
-the prior result(s) that motivated THIS experiment (cite issue numbers like
-#34), the specific question it answers, and the goal. A reader who sees only
-this subsection should know BOTH what the project is about AND why this
-experiment was run. Minimum 30 words.}}
+research area, what is the specific mechanism / phenomenon under study, and
+why it matters. THEN 1-2 sentences: the prior result(s) that motivated THIS
+experiment (cite issue numbers like #34), the specific question it answers,
+and the goal. A reader who sees only this subsection should know BOTH what
+the project is about AND why this experiment was run. Minimum 30 words.}}
 
 ### Methodology
 
@@ -125,14 +119,14 @@ the former "Decision Log" — fold it in rather than giving it its own H2.}}
 ### Model
 | | |
 |-|-|
-| Base | `{{hf_path}}` ({{param_count}}) |
+| Base | `{{hub_path}}` ({{param_count}}) |
 | Trainable | {{LoRA adapter / full model / ...}} |
 
 ### Training — `{{script_path}}` @ commit `{{short_hash}}`
 | | |
 |-|-|
 | Method | {{SFT / DPO / LoRA SFT / ...}} |
-| Checkpoint source | {{wandb artifact path or HF path or "from scratch"}} |
+| Checkpoint source | {{results-store artifact path or hub path or "from scratch"}} |
 | LoRA config | `r={{r}}, α={{alpha}}, dropout={{dropout}}, targets={{targets}}` |
 | Loss | {{standard CE / masked to marker positions only / ...}} |
 | LR | {{value or grid}} |
@@ -160,7 +154,7 @@ the former "Decision Log" — fold it in rather than giving it its own H2.}}
 |-|-|
 | Metric definition | {{how each metric is measured, inline}} |
 | Eval dataset + size | {{name, N}} |
-| Method | {{lm-eval-harness vLLM / judge / substring match / ...}} |
+| Method | {{eval-harness / batched inference / judge / ...}} |
 | Judge model + prompt | {{or N/A}} |
 | Samples / temperature | {{K completions at temp=T}} |
 | Significance | {{p-values reported alongside every percentage / rate in the headline table. Do not name the test in prose.}} |
@@ -168,7 +162,7 @@ the former "Decision Log" — fold it in rather than giving it its own H2.}}
 ### Compute
 | | |
 |-|-|
-| Hardware | {{e.g., 1× H200 SXM (pod1)}} |
+| Hardware | {{GPU type × count, target identifier}} |
 | Wall time | {{range or value}} |
 | Total GPU-hours | {{value}} |
 
@@ -176,11 +170,11 @@ the former "Decision Log" — fold it in rather than giving it its own H2.}}
 | | |
 |-|-|
 | Python | {{e.g., 3.11.5}} |
-| Key libraries | {{e.g., transformers=5.0.0, torch=2.5.1, trl=0.14.0, peft=0.13.0}} |
+| Key libraries | {{e.g., torch=X, transformers=Y, ...}} |
 | Git commit | {{short_hash — matches the `@` hash above}} |
 | Launch command | `{{exact nohup ... &, reproducible from scratch}}` |
 
-## WandB
+## Results store
 
 Project: [{{project_name}}]({{project_url}})
 
@@ -198,16 +192,15 @@ you did about it — e.g., post-hoc re-upload script. Do not hide.)**
 |---|---|
 | Compiled aggregated results | `{{compiled_json_path}}` |
 | Per-run / per-condition results | `{{per_run_glob}}` |
-| WandB artifact (type `eval-results`) | `{{artifact_name}}` in project [`{{wandb_project}}`]({{wandb_project_url}}) |
-| Raw generations (all completions) | `{{raw_completions_path}}` (also in WandB artifact above) |
+| Results-store artifact (type `eval-results`) | `{{artifact_name}}` in project [`{{project_name}}`]({{project_url}}) |
+| Raw generations (all completions) | `{{raw_completions_path}}` (also in results-store artifact above) |
 | Judge scores (if applicable) | `{{judge_scores_path}}` or N/A |
 
 ## Sample outputs
 
-<!-- >=3 randomly-sampled (persona, prompt, response) triplets per condition.
+<!-- >=3 randomly-sampled (input, prompt, response) triplets per condition.
      Use `python scripts/sample_outputs.py --eval-json <path> --n 3 --seed 42`
-     to seed-fill. The verifier (scripts/verify_clean_result.py
-     check_sample_outputs) requires:
+     to seed-fill. The verifier requires:
        - `## Sample outputs` (H2)
        - >=1 `### Condition: <name>` (H3) subsection
        - >=3 fenced ```code``` blocks per condition
@@ -218,21 +211,21 @@ you did about it — e.g., post-hoc re-upload script. Do not hide.)**
 ### Condition: {{cond_1_name}}
 
 ```
-[persona]: {{persona_1a}}
-[prompt]:  {{prompt_1a}}
-[output]:  {{output_1a}}
+[input]:  {{input_1a}}
+[prompt]: {{prompt_1a}}
+[output]: {{output_1a}}
 ```
 
 ```
-[persona]: {{persona_1b}}
-[prompt]:  {{prompt_1b}}
-[output]:  {{output_1b}}
+[input]:  {{input_1b}}
+[prompt]: {{prompt_1b}}
+[output]: {{output_1b}}
 ```
 
 ```
-[persona]: {{persona_1c}}
-[prompt]:  {{prompt_1c}}
-[output]:  {{output_1c}}
+[input]:  {{input_1c}}
+[prompt]: {{prompt_1c}}
+[output]: {{output_1c}}
 ```
 
 (Minimum 3 fenced blocks per condition; add more if useful. If a judge score
@@ -242,21 +235,21 @@ applies, include it inline in the fenced block, e.g. `[judge]: score=4/5
 ### Condition: {{cond_2_name}}
 
 ```
-[persona]: {{persona_2a}}
-[prompt]:  {{prompt_2a}}
-[output]:  {{output_2a}}
+[input]:  {{input_2a}}
+[prompt]: {{prompt_2a}}
+[output]: {{output_2a}}
 ```
 
 ```
-[persona]: {{persona_2b}}
-[prompt]:  {{prompt_2b}}
-[output]:  {{output_2b}}
+[input]:  {{input_2b}}
+[prompt]: {{prompt_2b}}
+[output]: {{output_2b}}
 ```
 
 ```
-[persona]: {{persona_2c}}
-[prompt]:  {{prompt_2c}}
-[output]:  {{output_2c}}
+[input]:  {{input_2c}}
+[prompt]: {{prompt_2c}}
+[output]: {{output_2c}}
 ```
 
 (Minimum 3 fenced blocks per condition; repeat the `### Condition:` block
@@ -293,4 +286,4 @@ surface in the TL;DR "Confidence" line instead of burying):
 | Figure (PDF) | `figures/{{path}}.pdf` |
 | Data cache | `{{data_cache_path}}` |
 | Any derived module | `src/{{module_path}}` |
-| HF Hub model / adapter | `{{hf_hub_path_or_prefix}}` |
+| Artifact-store model / adapter | `{{artifact_store_path_or_prefix}}` |

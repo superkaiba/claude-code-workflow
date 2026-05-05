@@ -56,10 +56,10 @@ for the gaps that remain:
      technique, dataset, hypothesis). If a paper already reports the same
      intervention + result, surface it — running a duplicate is a waste.
      When precise math/equations matter, use `mcp__arxiv-latex__get_paper_section`.
-   - `external/` — reference codebases checked into the repo (open-instruct,
-     agentic-backdoor, training-against-misalignment). Grep for function/class
-     names mentioned in the issue; sometimes a method is already implemented
-     and we'd be duplicating engineering work.
+   - `external/` — reference codebases checked into the repo (project-
+     specific). Grep for function/class names mentioned in the issue;
+     sometimes a method is already implemented and we'd be duplicating
+     engineering work.
    - `docs/` — internal write-ups and research notes (e.g., `research_ideas.md`,
      literature digests). Often contain summaries of related work that didn't
      make it into a clean-result issue.
@@ -100,9 +100,9 @@ After this pass, write a short internal note (NOT posted to the issue unless
 the user asks for it) of the form:
 
 > **Context resolved from project knowledge:**
-> - Baseline = clean-result #75 (Qwen-2.5-7B-Instruct, ARC-C 0.78, seed 42)
-> - Eval suite = `eval/betley_alignment.py` (per `RESULTS.md` headline #3)
-> - Method delta vs parent #137 = swap LoRA r=16 → r=64 (only difference)
+> - Baseline = clean-result #<N> (model X, metric Y, seed Z)
+> - Eval suite = `<path/to/eval.py>` (per `RESULTS.md` headline #3)
+> - Method delta vs parent #<M> = <one variable changed>
 >
 > **Remaining blocking ambiguities:**
 > 1. ...
@@ -111,8 +111,7 @@ the user asks for it) of the form:
 Use this note to:
 - **Cut** any clarifying question whose answer is already in project knowledge.
 - **Sharpen** the remaining questions by quoting the relevant prior result
-  (e.g., "Issue #75 used Claude-judge alignment 0–100 — same metric here, or
-  different?").
+  (e.g., "Issue #<N> used metric X — same metric here, or different?").
 - **Inform** the adversarial planner if/when control passes to Step 2 — the
   planner inherits this same context (cite issue / paper numbers in the plan).
 
@@ -129,7 +128,7 @@ Check that the issue body answers each question. If not, ask it.
 
 ### Hypothesis + prediction
 - What specific hypothesis does this test? State it as an `if X then Y`.
-- What is the quantitative prediction? (e.g., "EM coupling drops by ≥30% under
+- What is the quantitative prediction? (e.g., "metric Y drops by ≥30% under
   intervention A vs. baseline")
 - What result would FALSIFY the hypothesis? (kill criterion)
 
@@ -140,34 +139,34 @@ Check that the issue body answers each question. If not, ask it.
 
 ### Data
 - What dataset? Exact name, version, size.
-- Do we need to regenerate data, or is it cached on HF Hub?
+- Do we need to regenerate data, or is it cached in the dataset store?
 - What preprocessing?
 
 ### Model
-- Base model? Checkpoint? (HF path or WandB artifact)
+- Base model? Checkpoint? (artifact-store path or hub identifier)
 - Full finetune / LoRA / DPO / SFT?
 
 ### Training details (if training involved)
 - Learning rate, schedule, batch size, epochs, seq length.
-- Precision, DeepSpeed stage, LoRA config if applicable.
+- Precision, DeepSpeed stage, adapter config if applicable.
 - How many seeds? (Single-seed experiments get flagged by reviewer — consider ≥3
   if the claim is headline-level.)
 
 ### Eval
-- Which eval suite? (ARC-C / MMLU / alignment judge / custom)
-- Which metric? (accuracy / Claude-judge alignment 0-100 / StrongREJECT / etc.)
+- Which eval suite?
+- Which metric?
 - How many samples per question for stochastic evals?
-- Statistical test? (paired t-test, bootstrap CI, Bonferroni correction if
-  multiple comparisons)
+- Statistical test? (the project reports p-values + N only — no effect sizes
+  or named tests in prose.)
 
 ### Compute
-- Target pod? Pod1-5 have different GPU counts — which is appropriate?
+- Target compute spec? Tie to the parallelism analysis in the plan's §9.
 - GPU-hour estimate? (informs compute label: small <5h, medium 5-20h, large >20h)
 - Wall-time estimate?
 
 ### Upload + cleanup
-- WandB project name? (default: `explore-persona-space`)
-- HF Hub repo for model upload? (default: `superkaiba1/explore-persona-space`)
+- Results-store project name?
+- Artifact-store repo for model upload?
 - Any local artifacts to keep after upload, or clean all?
 
 ---
@@ -209,7 +208,7 @@ Check that the issue body answers each question. If not, ask it.
 ## For `type:analysis` issues (re-analysis of existing results)
 
 ### Source data
-- Which `eval_results/` directory or WandB run(s)?
+- Which `eval_results/` directory or results-store run(s)?
 - Git commit hash of the original experiment?
 
 ### New claim

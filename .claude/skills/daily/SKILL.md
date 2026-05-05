@@ -87,7 +87,7 @@ here, append a `## Subagent prompt: <name>` section below.)
 
 ```
 You are generating today's daily research mentor update for the
-explore-persona-space project. Lead with the result, not the process.
+project. Lead with the result, not the process.
 Reading-time target: under 5 minutes.
 
 # Data sources (gather in parallel via Bash; all are read-only)
@@ -118,9 +118,9 @@ Reading-time target: under 5 minutes.
      --label status:proposed --label status:approved --label status:running \
      --json number,title,labels,updatedAt
 
-7. Running experiments on pods (use ssh MCP if loaded; else Bash ssh):
+7. Running experiments on the compute target(s) (use ssh MCP if loaded; else Bash ssh):
    nvidia-smi --query-compute-apps=pid,name,used_memory --format=csv
-   on each currently-registered pod from `python scripts/pod.py config --list`.
+   on each currently-registered compute target listed by your project's compute CLI.
 
 # Output structure (markdown body)
 

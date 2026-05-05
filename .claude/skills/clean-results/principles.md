@@ -215,5 +215,5 @@ weekly-meeting artifact — implies it may be read by collaborators, advisors,
 or external reviewers who lack project context. The Background subsection
 must bridge the gap between "I know nothing about this project" and "I
 understand why this experiment matters" in 1-2 sentences. This is not just
-polish: a Background that assumes familiarity with persona coupling or EM
-loses half the audience before the methodology.
+polish: a Background that assumes project-specific jargon loses half the
+audience before the methodology.

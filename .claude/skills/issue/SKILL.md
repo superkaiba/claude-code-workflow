@@ -72,7 +72,7 @@ Read these on first invocation of the skill in a session.
 The agent MUST auto-continue through every step except the user-gated
 states. Six functional user-input gates total in this skill (see CLAUDE.md
 "Auto-continuation policy"): Step 0b body, Step 0b type, Step 1 clarifier,
-Step 2c plan-approval, Step 10c pod-termination, Step 10d merge-prompt.
+Step 2c plan-approval, Step 10c compute-teardown, Step 10d merge-prompt.
 Anywhere else that an assumption needs to be made, STATE the assumption
 inline (one line, prefixed `Assumption:`) and proceed. Do NOT pause to ask.
 
@@ -104,7 +104,7 @@ status:proposed                           <- user has filed, clarifier hasn't ru
                                                                |--> status:code-reviewing   <- code-reviewer (fresh context)
                                                                       |-- FAIL + count<3 --> status:implementing (loop, v+1)
                                                                       |-- FAIL + count>=3 --> status:blocked
-                                                                      |-- PASS + [type:experiment] --> status:running   <- experimenter (pod ops + monitoring)
+                                                                      |-- PASS + [type:experiment] --> status:running   <- experimenter (compute ops + monitoring)
                                                                             |-- (epm:results posted)
                                                                                |--> status:uploading  <- upload verifier
                                                                                       |-- (all artifacts verified, pod stopped)
@@ -135,7 +135,7 @@ There is no user sign-off step. Reviewer PASS (or `epm:test-verdict` PASS for co
 | `approved` | skill (worktree + draft PR) | no |
 | `implementing` | experiment-implementer (type:experiment) OR implementer (type:infra) | no |
 | `code-reviewing` | code-reviewer agent | no |
-| `running` | experimenter agent (pod ops + monitoring); type:experiment only | no |
+| `running` | experimenter agent (compute ops + monitoring); type:experiment only | no |
 | `uploading` | upload-verifier agent | no |
 | `interpreting` | analyzer + interpretation-critic agents (iterative loop) | no |
 | `reviewing` | reviewer / code-reviewer agent (final gate) | no |
@@ -167,7 +167,7 @@ Format string:
 Examples:
 - `#226 type:infra — implementing workflow improvements — next: code-review`
 - `#226 type:infra — code-review FAIL round 2 — next: respawn implementer`
-- `#137 type:experiment — done-experiment — followups: #240, #241 — clean-result #310: persona collapse hero`
+- `#137 type:experiment — done-experiment — followups: #240, #241 — clean-result #310: <claim summary>`
 
 Helper pseudocode:
 ```python
@@ -346,7 +346,7 @@ Post plan as `<!-- epm:plan v1 -->` comment. Cache a copy at
 `.claude/plans/issue-<N>.md` (cache only -- GitHub is source of truth).
 
 Also post estimated cost prominently at the top of the comment, e.g.
-> **Cost gate:** estimated 12 GPU-hours on pod3 (8xH100). Reply `approve` to dispatch.
+> **Cost gate:** estimated 12 GPU-hours on the planned compute target. Reply `approve` to dispatch.
 
 ### Step 2b: Consistency checker
 
@@ -496,74 +496,64 @@ Advance label to `status:code-reviewing` while the reviewer is running, back
 to `status:implementing` on FAIL, forward to `status:running` (or
 `status:reviewing` for non-experiment types) on PASS.
 
-### Step 6: Pod provisioning + experimenter dispatch (type:experiment only)
+### Step 6: Compute provisioning + experimenter dispatch (type:experiment only)
 
 Only if `status:running` (entered from Step 5b PASS for `type:experiment`)
 and no `epm:launch` marker exists.
 
-#### Step 6a: HF gate auto-acceptance
+#### Step 6a: Gate auto-acceptance (optional)
 
-Plans never make the human click through
-gated-model gate pages. Before provisioning, scan the cached plan for HF
-model IDs and submit gate-acceptance requests using the user's `HF_TOKEN`:
-
-```bash
-uv run python scripts/hf_gate_accept.py --from-plan .claude/plans/issue-<N>.md
-```
-
-The helper is idempotent (already-accessible repos exit `OK` immediately).
-For "auto-approval" gates (the common case for almanach/Inria/Meta/Qwen
-research releases) the access is granted on submission. For the rare
-manual-approval gate the request is queued and the helper exits with code 1
-and a list of URLs.
+If your project pulls gated models, run a project-specific helper that
+auto-accepts gate-acceptance for the model IDs cited in the cached plan.
+The helper should be idempotent (already-accessible repos exit `OK`
+immediately). Hand off the appropriate API token from `.env`.
 
 - Exit code `0` → proceed to 6b.
 - Exit code `1` (manual approval still needed) → post `<!-- epm:hf-gate-pending v1 -->`
   with the URLs, leave label at `status:running`, EXIT. User clicks through,
   re-runs `/issue <N>`.
-- Exit code `2` (`HF_TOKEN` missing) → post `<!-- epm:hf-gate-pending v1 -->`
+- Exit code `2` (token missing) → post `<!-- epm:hf-gate-pending v1 -->`
   with diagnostic, label `status:blocked`. EXIT.
 
-This step is also re-run on the pod inside `bootstrap_pod.sh` so a token
-pushed to the pod gets the same gate state as the local VM.
+If your workflow does not use gated models, skip 6a entirely.
 
-#### Step 6b: Pod provisioning
+#### Step 6b: Compute provisioning
 
-Pods are ephemeral — there is no permanent fleet.
-Pick the path based on whether this issue has a parent:
+Provision (or attach to) the compute target for this issue. The exact
+mechanism is project-specific — fill in your provider's CLI here.
+
+> TODO: replace these placeholders with your project's actual lifecycle
+> commands. The contract is: provision a target identified by the issue
+> number, run preflight, and pass a stable target identifier to the
+> experimenter.
 
 ```bash
 # 1. Check the issue body for a `Parent: #<M>` line.
-# 2. If present AND `epm-issue-<M>` exists in `pod.py list-ephemeral`:
-python scripts/pod.py resume --issue <M>
-#    Use that pod for this child issue (don't provision a new one).
-#    Record the assigned pod as `epm-issue-<M>` in the launch marker.
+# 2. If present AND a compute target for issue <M> exists:
+<compute-cli> resume --issue <M>
+#    Use that target for this child issue (don't provision a new one).
 
-# 3. Otherwise, provision a fresh pod. Infer --intent from the plan:
-#    training a 7B model -> ft-7b or lora-7b; eval/generation -> eval;
-#    70B work -> inf-70b/ft-70b. Override with --gpu-type/--gpu-count for
-#    anything else.
-python scripts/pod.py provision --issue <N> --intent <inferred>
+# 3. Otherwise, provision a fresh target. Infer the spec from the plan
+#    (parallelism §9 of the plan).
+<compute-cli> provision --issue <N> --spec <inferred>
 ```
 
-`provision` enforces team scoping (`X-Team-Id`), SSH bring-up (`startSsh: true`,
-exposes `22/tcp`), pinned image, and runs bootstrap inline (uv, repo, .env,
-HF cache, HF gate-accept, preflight). On provision failure post `<!-- epm:pod-pending -->`
-with the error and stay at `status:running` (no implementer re-spawn — this is
-infra, not code). User adjusts (capacity, intent override) and re-runs
-`/issue <N>`.
+On provision failure post `<!-- epm:pod-pending -->` with the error and stay
+at `status:running` (no implementer re-spawn — this is infra, not code).
+User adjusts (capacity, spec override) and re-runs `/issue <N>`.
 
-The pod name passed downstream is `epm-issue-<N>` (or the parent's
-`epm-issue-<M>` for follow-ups). The experimenter does NOT pick or create
-pods.
+The target identifier passed downstream is project-defined (e.g. an SSH
+host alias, a job-system queue name). The experimenter does NOT provision
+or create compute itself.
 
-#### Step 6c: Preflight on resumed pods
+#### Step 6c: Preflight on resumed targets
 
-`provision` already ran preflight as its
-last bootstrap step. For *resumed* pods, re-run preflight explicitly because
-the volume is intact but the container restart may have left stale state:
+If `provision` ran preflight as its last bootstrap step, you can skip
+preflight for fresh targets. For *resumed* targets, re-run preflight
+explicitly because the volume is intact but the container restart may
+have left stale state:
 ```
-ssh_execute(pod=epm-issue-<N>, command="cd /workspace/explore-persona-space && uv run python -m explore_persona_space.orchestrate.preflight --json")
+ssh_execute(server=<target>, command="cd <project-path> && uv run python -m <your_project>.orchestrate.preflight --json")
 ```
 Parse JSON. If `ok=false`, post `<!-- epm:preflight v1 -->` comment with the
 errors/warnings, EXIT. User fixes, re-runs.
@@ -571,30 +561,30 @@ errors/warnings, EXIT. User fixes, re-runs.
 #### Step 6d: Dispatch experimenter
 
 Spawn `experimenter` subagent via `Agent()`.
-The experimenter's scope is **pod ops + monitoring + debugging only** — it
-does NOT write substantial code (hot-fixes ≤10 lines, no logic changes; see
-the experimenter agent definition).
+The experimenter's scope is **compute ops + monitoring + debugging only** —
+it does NOT write substantial code (hot-fixes ≤10 lines, no logic changes;
+see the experimenter agent definition).
 
 Brief passed to experimenter:
 - The plan + the code-reviewed branch (`issue-<N>`)
-- Pod name (`epm-issue-<N>` or parent's)
+- Target identifier (e.g. SSH host alias for this issue)
 - The exact `nohup` launch command from the plan's Reproducibility Card
 - Progressive monitoring schedule (per the experimenter agent definition)
-- Required `report-back` fields (artifacts, WandB URL, HF Hub path, deviations,
-  hot-fix log)
+- Required `report-back` fields (artifacts, results-store URL, artifact-store
+  path, deviations, hot-fix log)
 
-**NEVER include pod lifecycle commands (provision, stop, resume, terminate,
-cleanup) in the experimenter brief.** The experimenter agent spec explicitly
-forbids pod lifecycle management (line ~305). Pod stop happens in Step 8
-(after upload-verification PASS); pod termination happens in Step 10c (with
-user approval). Including `pod.py terminate` or `pod.py stop` in the
-experimenter's instructions bypasses these gates and risks premature
-destruction of cached artifacts needed by follow-up issues.
+**NEVER include compute lifecycle commands (provision, stop, resume,
+terminate, cleanup) in the experimenter brief.** The experimenter agent spec
+explicitly forbids compute lifecycle management. Stop happens in Step 8
+(after upload-verification PASS); termination happens in Step 10c (with
+user approval). Including teardown commands in the experimenter's
+instructions bypasses these gates and risks premature destruction of
+cached artifacts needed by follow-up issues.
 
 Post `<!-- epm:launch v1 -->` containing:
 - Worktree path, branch, PR URL, code-review verdict (`PASS`)
-- Pod + PID + log path
-- WandB run URL (best-effort; experimenter updates if not known yet)
+- Target + PID + log path
+- Results-store run URL (best-effort; experimenter updates if not known yet)
 - Experimenter subagent ID (for monitoring)
 
 Label stays at `status:running`. EXIT. Experimenter runs autonomously. The
@@ -612,7 +602,7 @@ milestones, optional `<!-- epm:hot-fix v<n> -->` markers for in-line fixes
 final `<!-- epm:results v1 -->` comment containing:
 - Final eval numbers (inline JSON snippet + path in repo)
 - Reproducibility card (filled)
-- WandB URL + HF Hub model/adapter URL
+- Results-store URL + artifact-store model/adapter URL
 - Worktree path + final commit hash
 - GPU-hours actually used vs budgeted
 - Plan deviations + rationale
@@ -630,8 +620,8 @@ When this skill is re-invoked in `status:running`:
 
    | failure_class | Cause example | Action |
    |---|---|---|
-   | `infra` | OOM, ENOSPC, NCCL, vLLM init failure, SSH refused, 401/gated repo, library traceback (vllm/transformers/peft/trl/torch/xformers) | Re-spawn the **experimenter** on the SAME branch, post `epm:experimenter-respawn v<n+1>`. NO implementer round. Cap 3 respawns; on 4th, `status:blocked`. |
-   | `code` | Python `Traceback` from `src/explore_persona_space/` or `scripts/` (our code), `AssertionError`/`TypeError`/`KeyError` from our code | Label back to `status:implementing`, re-spawn `experiment-implementer` with the failure context. Loop through Steps 4b → 5 → 6 again. Cap 3 (existing). |
+   | `infra` | OOM, ENOSPC, NCCL, inference-engine init failure, SSH refused, 401/gated repo, library traceback (third-party packages) | Re-spawn the **experimenter** on the SAME branch, post `epm:experimenter-respawn v<n+1>`. NO implementer round. Cap 3 respawns; on 4th, `status:blocked`. |
+   | `code` | Python `Traceback` from your project's `src/` or `scripts/`, `AssertionError`/`TypeError`/`KeyError` from your code | Label back to `status:implementing`, re-spawn `experiment-implementer` with the failure context. Loop through Steps 4b → 5 → 6 again. Cap 3 (existing). |
 
    **Missing `failure_class` — invoke the classifier script.** Do NOT
    reason about regex patterns inline; the patterns are owned by
@@ -674,35 +664,36 @@ permanent URLs. This prevents data loss from pod restarts or cleanup.
 Spawn the `upload-verifier` agent with:
 - Issue number
 - Experiment type (from `type:*` label)
-- Artifact hints from the `epm:results` marker (WandB URL, HF paths, pod name)
+- Artifact hints from the `epm:results` marker (results-store URL,
+  artifact-store paths, target identifier)
 - The `epm:plan` marker (for experiment type metadata)
 
-The verifier runs `scripts/verify_uploads.py` and checks:
+The verifier runs the project's verification script and checks:
 
 | Artifact | Required when | Verified how |
 |----------|--------------|--------------|
-| Model on HF Hub | Training experiments | HF API |
-| Eval JSON on WandB | Always | WandB API |
-| Dataset on HF Hub | New data generated | HF API |
-| Output generations on WandB | Generation experiments | WandB API |
-| Training metrics on WandB | Training experiments | WandB run URL |
+| Model in artifact store | Training experiments | Artifact-store API |
+| Eval JSON in results store | Always | Results-store API |
+| Dataset in dataset store | New data generated | Dataset-store API |
+| Output generations in results store | Generation experiments | Results-store API |
+| Training metrics in results store | Training experiments | Run URL |
 | Figures committed to git | Always | `git log` |
-| Local weights cleaned | Training experiments | `ssh_execute ls` on pod |
+| Local weights cleaned | Training experiments | `ssh_execute ls` on target |
 
 Post `<!-- epm:upload-verification v1 -->` marker with per-artifact PASS/FAIL + URLs.
 
-- **PASS** -> stop the pod, then advance to `status:interpreting` and proceed to Step 9.
-  Once artifacts are confirmed at permanent URLs, the pod is no longer needed —
-  interpretation runs locally:
+- **PASS** -> stop the compute target, then advance to `status:interpreting`
+  and proceed to Step 9. Once artifacts are confirmed at permanent URLs the
+  target is no longer needed — interpretation runs locally:
   ```bash
-  python scripts/pod.py stop --issue <N>
+  <compute-cli> stop --issue <N>
   ```
-  This pauses the pod (volume preserved) and starts the TTL clock. If
-  interpretation later needs the pod (e.g., to regenerate a figure from raw
-  outputs), `pod.py resume --issue <N>` brings it back. If the issue body has
-  `Parent: #<M>`, stop the parent's pod (`epm-issue-<M>`) instead. Skip the stop
-  call only if the user has labelled the issue `keep-running` for known
-  follow-up work in the same session.
+  This pauses the target (volume preserved). If interpretation later needs
+  the target (e.g., to regenerate a figure from raw outputs), the compute
+  CLI's `resume` brings it back. If the issue body has `Parent: #<M>`, stop
+  the parent's target instead. Skip the stop call only if the user has
+  labelled the issue `keep-running` for known follow-up work in the same
+  session.
 - **FAIL** -> stays at `status:uploading`. Post clear list of what's missing with
   commands to fix. EXIT. Experimenter or user fixes, re-invokes `/issue <N>`.
 
@@ -877,26 +868,27 @@ Each created follow-up issue links to the parent via `Parent: #<N>` in the body.
 # Fire title update after follow-ups marker is posted.
 # mcp__happy__change_title({"title": render_title(issue, status_human="done-experiment", followups=[...])})
 
-### Step 10c: Pod termination prompt (experiments only)
+### Step 10c: Compute teardown prompt (experiments only)
 
-After Step 10b posts, ask the user for permission to terminate the experiment's
-pod. Skip if the issue body has `Parent: #<M>` (the parent owns the pod —
-termination is decided when the parent's `/issue` run reaches this step).
+After Step 10b posts, ask the user for permission to terminate the
+experiment's compute target. Skip if the issue body has `Parent: #<M>` (the
+parent owns the target — termination is decided when the parent's `/issue`
+run reaches this step).
 
 Use `AskUserQuestion`:
 
-> **Terminate `epm-issue-<N>`?** The pod is currently stopped (volume preserved).
-> Terminating destroys the volume; any follow-up issue would spin a fresh pod
-> and re-bootstrap (~few min + base-model re-download into the HF cache).
+> **Terminate compute target for issue #<N>?** The target is currently stopped
+> (volume preserved). Terminating destroys the volume; any follow-up issue
+> would re-provision and re-bootstrap.
 >
 > Options: **Terminate** (recommended if no follow-ups planned) / **Keep stopped**
-> (the pod stays parked until you run `pod.py resume --issue <N>` or
-> `pod.py terminate --issue <N> --yes` manually — there is no auto-cleanup).
+> (the target stays parked until you resume or terminate it manually — there is
+> no auto-cleanup).
 
-- **Terminate** → run `python scripts/pod.py terminate --issue <N> --yes`. Post
+- **Terminate** → run the project's terminate command. Post
   `<!-- epm:pod-terminated v1 -->` with the command output.
 - **Keep stopped** → no-op. Post `<!-- epm:pod-kept-stopped v1 -->` reminding
-  the user that the pod must be cleaned up manually.
+  the user that the target must be cleaned up manually.
 - **Autonomous mode (no user present)** → default to **Keep stopped** and post
   the marker. Never terminate without explicit user approval.
 
@@ -979,6 +971,8 @@ investigate and optionally label `status:blocked`.
 | `code-reviewing` | no `epm:code-review` for the current implementation version | code-reviewer was cancelled | re-spawn code-reviewer |
 | `running` | no `epm:results` for > 4h | experimenter crashed silently | post `epm:stale`, ask user |
 | `running` | latest marker is `epm:failure` with bounce-back proposal | experimenter bounced to implementer | label back to `status:implementing`, re-spawn experiment-implementer |
+
+
 | `uploading` | no `epm:upload-verification` PASS | verifier not run or failed | re-run upload-verifier |
 | `interpreting` | no `epm:interpretation` | analyzer not started | spawn analyzer |
 | `interpreting` | `epm:interpretation` exists, no `epm:interp-critique` | critic not started | spawn interpretation-critic |
@@ -1023,7 +1017,7 @@ See `markers.md` for the full taxonomy. Every marker comment uses the format:
 - **Never edit `RESULTS.md` without proposal+approval.** Headline-level
   science is high-stakes.
 - **Never auto-delete worktrees or model artifacts.** Cleanup is manual via
-  `python scripts/pod.py cleanup`.
+  the project's compute-CLI cleanup command.
 - **Abort path:** user labels `status:blocked` -> skill posts `<!-- epm:abort v1 -->`
   and (if specialist is still running) sends abort signal. Specialist must check
   for `epm:abort` marker periodically.

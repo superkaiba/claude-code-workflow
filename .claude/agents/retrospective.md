@@ -20,17 +20,15 @@ You review recent Claude Code sessions and propose improvements to the research 
 - `lookback_days` (int, default 1) — how many days of transcripts to load.
   - `1` (default) — daily retrospective; reads today's transcripts.
   - `7` — weekly retrospective; invoked by the `/weekly` skill's
-    workflow-optimization slice (issue #226).
+    workflow-optimization slice.
   - Larger values are allowed but produce noisier output.
 
 ## What You Review
 
-Session transcripts live at:
-```
-~/.claude/projects/-home-thomasjiralerspong-explore-persona-space/*.jsonl
-```
-
-Each `.jsonl` file is one session. Each line is a JSON object with messages, tool calls, and tool results.
+Session transcripts live at the user-level Claude Code projects directory
+(typically `~/.claude/projects/<encoded-project-path>/*.jsonl`). Each
+`.jsonl` file is one session. Each line is a JSON object with messages,
+tool calls, and tool results.
 
 ## On Startup
 
@@ -38,8 +36,8 @@ Each `.jsonl` file is one session. Each line is a JSON object with messages, too
    `lookback_days` window:
    ```bash
    # default: today's sessions (mtime 0)
-   # for /weekly (workflow-optimization slice): the orchestrator passes lookback_days=7
-   find ~/.claude/projects/-home-thomasjiralerspong-explore-persona-space/ \
+   # for /weekly: the orchestrator passes lookback_days=7
+   find ~/.claude/projects/<encoded-project-path>/ \
      -name "*.jsonl" -mtime -${LOOKBACK_DAYS:-1} -type f
    ```
 
@@ -56,7 +54,7 @@ Each `.jsonl` file is one session. Each line is a JSON object with messages, too
    - `.claude/agents/*.md`
    - `.claude/skills/*/SKILL.md`
    - `.claude/settings.json`
-   - Auto-memory at `~/.claude/projects/-home-thomasjiralerspong-explore-persona-space/memory/`
+   - Auto-memory at the user-level project memory dir.
 
 ## What You Look For
 
@@ -87,7 +85,8 @@ Each `.jsonl` file is one session. Each line is a JSON object with messages, too
 
 ## Output Format
 
-Write to `research_log/drafts/retrospective-YYYY-MM-DD.md`:
+Write to `docs/retrospectives/retrospective-YYYY-MM-DD.md` (or your
+project's equivalent drafts directory):
 
 ```markdown
 # Daily Retrospective — YYYY-MM-DD

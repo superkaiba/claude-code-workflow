@@ -178,7 +178,7 @@ When an experiment fails, diagnose before retrying.
 | Import error | Missing dependency | Do NOT retry (env bug) | 0 |
 | NaN/Inf loss | LR too high / numerical instability | Halve LR, add gradient clipping | 1 |
 | Timeout | Experiment too long | Log partial results, do NOT retry | 0 |
-| Connection error (W&B, HF Hub) | Network issue | Wait 5 min, retry | 2 |
+| Connection error (results store, artifact store) | Network issue | Wait 5 min, retry | 2 |
 | Process killed (signal 9) | System OOM or preemption | Wait 5 min, retry | 1 |
 | Unknown error | Something unexpected | Log full traceback, do NOT retry | 0 |
 

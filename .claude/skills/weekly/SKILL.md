@@ -108,7 +108,7 @@ prompt: <name>` section below.)
 
 ```
 You are generating this week's research mentor update for the
-explore-persona-space project. Lead with the result, not the process.
+project. Lead with the result, not the process.
 Reading-time target: under 7 minutes. The 7-day window is "past 7 days
 from now".
 
@@ -196,10 +196,10 @@ below. It does the JSONL transcript review + GitHub-side activity scan
 itself.
 
 ```
-End-of-week workflow retrospective for the explore-persona-space project.
+End-of-week workflow retrospective for the project.
 Run with --lookback-days 7. Read every JSONL transcript modified in the
 past 7 days from
-~/.claude/projects/-home-thomasjiralerspong-explore-persona-space/, plus
+~/.claude/projects/<encoded-project-path>/, plus
 GitHub-side activity over the same window:
 
   WEEK_AGO=$(date -d '7 days ago' +%Y-%m-%d)
@@ -259,7 +259,7 @@ RETURN the gist URL as the SOLE output. No commentary.
 ## Subagent prompt: Code hygiene
 
 ```
-End-of-week code hygiene scan for the explore-persona-space project.
+End-of-week code hygiene scan for the project.
 Combines repo-wide dead-code analysis, refactor candidates, dependency
 freshness, .claude/ health audit, code duplication (jscpd), and unmerged
 worktree branches into one report. READ-ONLY for the project — never
@@ -420,7 +420,7 @@ Tertiary: issue number asc.
 ## Agenda
 ### 1. #<N> — <title>
 <full TL;DR pasted verbatim from issue body, hero figure inlined>
-[→ Full report](https://github.com/superkaiba/explore-persona-space/issues/<N>)
+[→ Full report](https://github.com/<owner>/<repo>/issues/<N>)
 
 ### 2. #<N> — ...
 
@@ -429,7 +429,7 @@ Tertiary: issue number asc.
 clean-results by information gain per GPU-hour.>
 
 ## Backup slides
-- #<N> — Detailed report: https://github.com/superkaiba/explore-persona-space/issues/<N>#user-content-detailed-report
+- #<N> — Detailed report: https://github.com/<owner>/<repo>/issues/<N>#user-content-detailed-report
 - ...
 
 # Step 5: Length check

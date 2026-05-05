@@ -128,9 +128,9 @@ List 5-10 assumptions the project currently holds, then reverse each:
 
 | Assumption | Reversal | What if the reversal is true? |
 |-----------|----------|-------------------------------|
-| Persona effects are created by fine-tuning | Persona structure exists in pretrained models | We could study personas without any training |
-| More training data → stronger persona signal | There's a saturation point or U-curve | We're wasting compute past the critical threshold |
-| The assistant axis is unique to instruct models | It exists in base models too | The axis is a property of the pretraining data |
+| Effect X is created by fine-tuning | Effect X exists in pretrained models | We could study X without any training |
+| More training data → stronger signal | There's a saturation point or U-curve | We're wasting compute past the critical threshold |
+| Property Y is unique to instruct models | It exists in base models too | Y is a property of the pretraining data |
 | [User fills in...] | [Reverse...] | [Explore implications...] |
 
 **Why this works:** De Bono's lateral thinking. Assumptions constrain the solution space. Reversing them forces you outside the current frame. Many breakthroughs come from questioning "obvious" assumptions.
@@ -154,12 +154,12 @@ Take the project's most recent significant result and apply each prompt:
 | Prompt | Question | Example |
 |--------|----------|---------|
 | **S**ubstitute | What component could we swap? | Different base model, different training method, different eval |
-| **C**ombine | What two things could we merge? | Midtraining + persona conditioning simultaneously |
+| **C**ombine | What two things could we merge? | Combine two techniques into one experiment |
 | **A**dapt | What technique from another field applies? | Concept erasure from vision, probing from BERTology |
-| **M**odify/Magnify/Minimize | What if we scaled dramatically? | 200 personas instead of 8; 1 persona with deep ablation |
-| **P**ut to other use | Can this method answer a different question? | Use persona-trained models to study feature circuits |
-| **E**liminate | What happens if we remove something assumed necessary? | Skip fine-tuning, study in-context persona adoption |
-| **R**everse | What if we did it backward? | Start misaligned, try to erase the persona; evaluate then train |
+| **M**odify/Magnify/Minimize | What if we scaled dramatically? | Sweep N up by 10x or down by 10x |
+| **P**ut to other use | Can this method answer a different question? | Re-purpose existing artifacts as a tool for a different study |
+| **E**liminate | What happens if we remove something assumed necessary? | Skip a phase that everyone assumes is needed |
+| **R**everse | What if we did it backward? | Run the pipeline in reverse order |
 
 ### 2B. Combinatorial Matrix (Morphological Analysis)
 
@@ -167,11 +167,11 @@ Identify 4-6 independent dimensions of the experimental design. List 3-5 values 
 
 | Dimension | Values |
 |-----------|--------|
-| Base model | Qwen-7B, Llama-8B, Mistral-7B, Pythia-6.9B, GPT-2-XL |
+| Base model | (list of base models in your project's scope) |
 | Training method | SFT, DPO, LoRA, full finetune, midtraining, ICL (no training) |
-| Data type | Persona dialogs, persona descriptions, synthetic personas, web text with personas |
-| Evaluation | Probing, LLM judge, behavioral, geometric (cosine), mechanistic (activation patching) |
-| Scale | 8 personas, 50, 200, 1000, cross-model transfer |
+| Data type | (list of data sources / formats) |
+| Evaluation | Probing, LLM judge, behavioral, geometric, mechanistic |
+| Scale | (list of scales / N values relevant to your project) |
 
 With 5 dimensions x 5 values = 3,125 combinations. Scan 15-20 random ones. Flag any combination that:
 - Has never been tried
@@ -182,13 +182,13 @@ With 5 dimensions x 5 values = 3,125 combinations. Scan 15-20 random ones. Flag 
 
 Abstract the current research problem, then find structural parallels in distant fields:
 
-1. State the problem without jargon: *"We're trying to find meaningful structure in a high-dimensional representation space and understand what creates it."*
+1. State the problem without jargon (one short sentence — what's the abstract structure?).
 2. Ask: "Where else does this structure appear?"
-   - **Ecology**: Species cluster by ecological niche along environmental gradients. What are the "environmental gradients" of persona space?
-   - **Genetics**: Gene expression spaces have principal axes reflecting cell type. Are persona axes analogous to cell-type axes?
-   - **Physics**: Phase transitions create sudden qualitative changes. Is there a "phase transition" in persona acquisition during training?
-   - **Economics**: Market dynamics show herding and regime shifts. Do persona representations show similar dynamics during training?
-   - **Neuroscience**: Brain regions specialize for functions. Do model layers specialize for persona vs. capability?
+   - **Ecology**: clustering along environmental gradients.
+   - **Genetics**: expression spaces with principal axes.
+   - **Physics**: phase transitions producing sudden qualitative change.
+   - **Economics**: market dynamics, herding, regime shifts.
+   - **Neuroscience**: specialization and modularity.
 
 Research shows biological and cross-domain analogies produce **more novel ideas** than within-domain analogies.
 
@@ -196,9 +196,9 @@ Research shows biological and cross-domain analogies produce **more novel ideas*
 
 Invoke different research perspectives:
 
-- **The mechanistic interpretability researcher**: "Can we find the circuit that implements persona conditioning? What happens if we ablate it?"
-- **The scaling laws researcher**: "Does persona geometry have scaling laws? How does it change with model size, data size, training time?"
-- **The adversarial researcher**: "How could someone exploit persona conditioning? What's the attack surface?"
+- **The mechanistic interpretability researcher**: "Can we find the circuit that implements this? What happens if we ablate it?"
+- **The scaling laws researcher**: "Does this property have scaling laws? How does it change with model size, data size, training time?"
+- **The adversarial researcher**: "How could someone exploit this? What's the attack surface?"
 - **The theorist**: "What mathematical framework would predict these results? Is there a clean formalization?"
 - **The skeptic**: "What's the simplest explanation for everything we've observed that involves no interesting mechanism at all?"
 
@@ -207,12 +207,12 @@ Invoke different research perspectives:
 If the group runs dry, inject randomness. Pick a random word and force connections:
 
 1. Random noun: **"River"**
-2. Attributes: flows, has tributaries, erodes over time, follows least resistance, has depth, connects distant places
-3. Forced connections to persona research:
-   - "Flows" → Do persona features flow through layers? Track propagation layer by layer.
-   - "Erodes" → Does persona signal erode with continued training? Measure at every checkpoint.
-   - "Least resistance" → Maybe personas "stick" when they align with existing pretrained features (low resistance path).
-   - "Tributaries" → Multiple data sources contributing to one persona. How do they interact?
+2. Attributes: flows, has tributaries, erodes over time, follows least resistance, has depth, connects distant places.
+3. Forced connections to your research question:
+   - "Flows" → does the effect flow through layers? Track propagation layer by layer.
+   - "Erodes" → does the signal erode with continued training? Measure at every checkpoint.
+   - "Least resistance" → maybe the effect "sticks" when it aligns with existing pretrained features (low-resistance path).
+   - "Tributaries" → multiple data sources contributing to one effect. How do they interact?
 
 ---
 

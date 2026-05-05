@@ -86,10 +86,10 @@ uv run python scripts/verify_clean_result.py <draft-path>
 |---------|----------|-----------|
 | Source issues | | No issue numbers cited, no one-line contributions |
 | Setup & hyper-parameters | | See reproducibility-card checklist below. MUST open with a short "why this experiment / why these parameters / alternatives considered" prose block (absorbs former Decision Log). |
-| WandB | | Missing project URL or individual run URLs |
+| Results store | | Missing project URL or individual run URLs |
 | Sample outputs | | For generation experiments: missing cherry-picked examples or no positive/negative pairing |
 | Headline numbers | | No bold row indicating the result; no units; no "Standing caveats" bullet block after the table |
-| Artifacts | | Missing WandB link, missing git commit hash, missing data-cache paths |
+| Artifacts | | Missing results-store link, missing git commit hash, missing data-cache paths |
 
 **Removed sections** (do NOT require these — older drafts used them, new drafts fold their content elsewhere):
 
@@ -104,7 +104,7 @@ uv run python scripts/verify_clean_result.py <draft-path>
 
 | Required Field | Red Flags |
 |---------------|-----------|
-| Base model | "Qwen model" instead of exact HF path |
+| Base model | Vague name instead of exact hub path / commit |
 | Learning rate, schedule, warmup | Missing or "default" |
 | Batch size | Missing breakdown (per_device x grad_accum x gpus) |
 | Epochs, max seq length | Missing |
@@ -156,7 +156,7 @@ For each major finding, ask:
 - [ ] Background cites prior issue/result
 - [ ] Methodology names N, matched-vs-confounded choices
 - [ ] Next steps are specific (name the eval / condition / issue)
-- [ ] Detailed report: Source issues, Setup & hyper-parameters (with "why this experiment / why these parameters / alternatives considered" prose at the top), WandB, Sample outputs, Headline numbers (with Standing caveats bullets inline after the table), Artifacts (all present)
+- [ ] Detailed report: Source issues, Setup & hyper-parameters (with "why this experiment / why these parameters / alternatives considered" prose at the top), results-store URL, Sample outputs, Headline numbers (with Standing caveats bullets inline after the table), Artifacts (all present)
 - [ ] `scripts/verify_clean_result.py` exits 0
 - Missing sections: [list]
 

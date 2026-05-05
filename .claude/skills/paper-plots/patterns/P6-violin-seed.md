@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
 
-from explore_persona_space.analysis.paper_plots import (
+from <your_project>.analysis.paper_plots import (
     add_direction_arrow,
     paper_palette,
     savefig_paper,
@@ -24,11 +24,11 @@ from explore_persona_space.analysis.paper_plots import (
 set_paper_style("neurips")
 
 rng = np.random.RandomState(0)
-conditions = ["baseline", "tulu_25", "tulu_100"]
+conditions = ["baseline", "treatment_low", "treatment_high"]
 data = {
     "baseline": rng.normal(0.90, 0.02, 15),
-    "tulu_25": rng.normal(0.82, 0.04, 15),
-    "tulu_100": rng.normal(0.70, 0.08, 15),
+    "treatment_low": rng.normal(0.82, 0.04, 15),
+    "treatment_high": rng.normal(0.70, 0.08, 15),
 }
 rows = [(cond, v) for cond, vals in data.items() for v in vals]
 
@@ -62,10 +62,10 @@ for i, c in enumerate(conditions):
 
 ax.set_xticks(range(len(conditions)))
 ax.set_xticklabels(conditions)
-ax.set_ylabel("Alignment rate")
+ax.set_ylabel("Metric")
 add_direction_arrow(ax, axis="y", direction="up")
 
-savefig_paper(fig, "aim5/tulu_violin", dir="figures/")
+savefig_paper(fig, "aim5/treatment_violin", dir="figures/")
 plt.close(fig)
 ```
 

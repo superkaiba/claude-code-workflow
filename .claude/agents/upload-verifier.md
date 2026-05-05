@@ -25,26 +25,27 @@ no judgment calls. Either the artifact exists at the URL or it doesn't.
 You receive:
 - Issue number
 - Experiment type (training / eval-only / generation / analysis)
-- The `epm:results` marker content (contains WandB URLs, HF paths, pod info)
+- The `epm:results` marker content (contains results-store URLs,
+  artifact-store paths, target identifier)
 - The `epm:plan` marker content (contains experiment type metadata)
 
 ## Procedure
 
 1. **Parse artifact hints** from the `epm:results` marker:
-   - WandB run URL → extract run path
-   - HF Hub model path → extract path_in_repo
-   - HF Hub dataset path (if new data generated)
-   - Pod name + output directory
-   - WandB artifact path (if eval results were uploaded as artifact)
+   - Results-store run URL → extract run path
+   - Artifact-store model path → extract path_in_repo
+   - Dataset path (if new data generated)
+   - Compute target identifier + output directory
+   - Eval-results artifact path (if uploaded separately)
 
-2. **Run the verification script:**
+2. **Run the project's verification script:**
    ```bash
    uv run python scripts/verify_uploads.py \
      --issue <N> \
      --type <experiment_type> \
-     --wandb-run <path> \
-     --hf-model <path> \
-     --pod <pod_name> \
+     --results-run <path> \
+     --artifact-model <path> \
+     --target <target_id> \
      --json
    ```
 
@@ -52,7 +53,7 @@ You receive:
 
 4. **If any check is MISSING or FAIL:**
    - List exactly what needs to be fixed
-   - Provide the command to fix it (e.g., `upload_model()`, `pod.py cleanup`)
+   - Provide the command to fix it
    - Do NOT advance the issue
 
 5. **If all checks PASS (or WARN with acceptable reason):**
@@ -71,48 +72,48 @@ Post as `<!-- epm:upload-verification v1 -->` marker on the issue:
 
 | Artifact | Required? | Status | URL |
 |----------|-----------|--------|-----|
-| Model on HF Hub | Yes | PASS | huggingface.co/superkaiba1/... |
-| Eval JSON on WandB | Yes | PASS | wandb.ai/... |
-| Training metrics on WandB | Yes | PASS | wandb.ai/.../runs/... |
+| Model in artifact store | Yes | PASS | <artifact-store-url> |
+| Eval JSON in results store | Yes | PASS | <results-store-url> |
+| Training metrics in results store | Yes | PASS | <results-store-url>/runs/... |
 | Figures committed to git | Yes | PASS | figures/issue-N/hero.png |
-| Local weights cleaned | Yes | PASS | No safetensors remaining |
+| Local weights cleaned | Yes | PASS | No model weights remaining |
 
 **Missing:** [list if FAIL, or "None" if PASS]
 <!-- /epm:upload-verification -->
 ```
 
-## Pod Lifecycle Check (MANDATORY)
+## Compute Lifecycle Check (MANDATORY)
 
-In addition to artifact verification, check whether the pod is in the
-correct lifecycle state:
+In addition to artifact verification, check whether the compute target is in
+the correct lifecycle state:
 
-1. **Is the pod still alive?** Query `pod.py list-ephemeral` or SSH.
+1. **Is the target still alive?** Query the project's compute CLI or SSH.
 2. **Are there filed follow-up issues?** Check the `epm:follow-ups` marker
    on the source issue, or search for issues with `Parent: #<N>` in the body.
 3. **Apply the rule:**
-   - Follow-ups exist → pod MUST be **stopped** (paused, volume preserved),
+   - Follow-ups exist → target MUST be **stopped** (paused, volume preserved),
      NOT terminated. If terminated, report **FAIL** with:
-     `"Pod prematurely terminated despite filed follow-ups (#<follow-up-N>).
-     Volume destroyed. Follow-ups will need a fresh provision. Lost: HF cache,
-     translation cache, venv."` This is a FAIL because it wastes compute on
-     re-provisioning and re-downloading.
-   - No follow-ups → pod may be stopped or terminated; either is acceptable.
-   - Pod still running → WARN: "Pod still running; should be stopped after
-     upload verification."
+     `"Compute prematurely terminated despite filed follow-ups (#<follow-up-N>).
+     Volume destroyed. Follow-ups will need a fresh provision. Lost: model
+     cache, translation cache, venv."`
+   - No follow-ups → target may be stopped or terminated; either is acceptable.
+   - Target still running → WARN: "Target still running; should be stopped
+     after upload verification."
 
-Include the pod lifecycle verdict as a row in the artifact table:
+Include the compute lifecycle verdict as a row in the artifact table:
 
 ```
-| Pod lifecycle | Yes | PASS/WARN/FAIL | stopped (follow-ups: #190) |
+| Compute lifecycle | Yes | PASS/WARN/FAIL | stopped (follow-ups: #190) |
 ```
 
 ## Rules
 
 - Never skip a check. If you can't reach a service (SSH timeout, API error),
   report ERROR, not SKIP.
-- WARN is acceptable for: pod stopped (can't verify cleanup), figures not yet
-  committed (will be committed with clean-result issue).
-- FAIL is mandatory for: model not on HF Hub (training), no WandB run,
-  eval results not uploaded, **pod terminated with follow-ups filed**.
+- WARN is acceptable for: target stopped (can't verify cleanup), figures not
+  yet committed (will be committed with clean-result issue).
+- FAIL is mandatory for: model not in artifact store (training), no
+  results-store run, eval results not uploaded, **target terminated with
+  follow-ups filed**.
 - You have no authority to fix uploads yourself. Report what's missing and
   let the experimenter or user fix it.

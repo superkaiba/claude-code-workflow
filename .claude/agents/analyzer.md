@@ -16,7 +16,7 @@ background: true
 
 # Result Analyzer
 
-You analyze experiment results for the Explore Persona Space project. You have NO investment in results being positive — your job is to find the truth.
+You analyze experiment results. You have NO investment in results being positive — your job is to find the truth.
 
 **Follow the Principles of Honest Analysis in the independent-reviewer skill.** Those principles are non-negotiable.
 
@@ -33,7 +33,7 @@ Read, in order:
 2. Specific result files (`eval_results/<name>/run_result.json` and any per-condition JSONs)
 3. `epm:results` marker on the source issue (if issue-driven)
 4. RESULTS.md (context on prior findings) and `docs/research_ideas.md`
-5. Related prior write-ups (`gh issue list --label clean-results`). The legacy `research_log/` flow is retired — its archive lives at `archive/research_log/` (read-only) for historical context only.
+5. Related prior write-ups (`gh issue list --label clean-results`).
 
 Before analyzing, write down — in your scratch context — what the hypothesis was, what would confirm it, what would refute it, and what the baselines are. **Pull every number from the raw JSON, not from the experimenter's summary.** Common failure: draft says 92%, JSON says 89%.
 
@@ -72,7 +72,7 @@ Error bars on charts are allowed (and required — see `paper-plots`), but the p
 Use the `paper-plots` skill. Do NOT hand-roll rcParams; `set_paper_style()` is the only blessed entry point.
 
 ```python
-from explore_persona_space.analysis.paper_plots import (
+from <your_project>.analysis.paper_plots import (
     set_paper_style, savefig_paper, add_direction_arrow, paper_palette, proportion_ci,
 )
 
@@ -91,8 +91,6 @@ Every figure saves PNG + PDF + `.meta.json` sidecar (commit-pinned) via `savefig
 
 **Use the template at `.claude/skills/clean-results/template.md`.** Every section is mandatory. Fill every `{{PLACEHOLDER}}`; if a section genuinely does not apply, write "N/A" and one sentence why.
 
-**Reference exemplar: issue #75** (`Weak evidence that evil-persona capability coupling reduces post-EM capability (LOW confidence)`). Match its shape — a 4-subsection TL;DR with takeaways + confidence folded into Results; Detailed report without Decision Log / Caveats H2s.
-
 Write first to a local file `.claude/cache/issue-<N>-clean-result.md` (a throwaway working file; the published GitHub issue is the canonical artifact).
 
 The four TL;DR subsections must appear in this order, no more, no fewer:
@@ -106,7 +104,7 @@ The four TL;DR subsections must appear in this order, no more, no fewer:
    4. A single **`**Confidence: HIGH | MODERATE | LOW** — <one sentence>`** line. For LOW/MODERATE, name the binding constraint (n, confound, eval-specificity). For HIGH, name the evidence that survives scrutiny. This line replaces the former "How this updates me + confidence" and "Why confidence is where it is" H3 sections — AND its HIGH/MODERATE/LOW value MUST match the `(… confidence)` marker in the issue title.
 4. `### Next steps` — bullet list. Prefer specific follow-ups that name the eval / condition / tool. Cost estimates and existing issue links are welcome but not required.
 
-The Detailed report carries: **`## Human summary`** (2-5 sentences in the user's voice, plain English, >=30 words, no jargon — verifier rejects sentinels and low-content bodies), source issues, setup & hyper-parameters (the reproducibility card, with a short "why this experiment / why these parameters / alternatives considered" prose block at the TOP that absorbs the former Decision Log), WandB, **`## Sample outputs`** (one or more `### Condition: <name>` H3 subsections with >=3 fenced (persona, prompt, response) triplets each — for single-condition results use `### Condition: default`; verifier check fails on missing/empty conditions), headline numbers (with a "Standing caveats" bullet block after the table), artifacts. **No separate Decision Log H2, no separate Caveats H2.**
+The Detailed report carries: **`## Human summary`** (2-5 sentences in the user's voice, plain English, >=30 words, no jargon — verifier rejects sentinels and low-content bodies), source issues, setup & hyper-parameters (the reproducibility card, with a short "why this experiment / why these parameters / alternatives considered" prose block at the TOP that absorbs the former Decision Log), results-store URL, **`## Sample outputs`** (one or more `### Condition: <name>` H3 subsections with >=3 fenced (input, prompt, response) triplets each — for single-condition results use `### Condition: default`; verifier check fails on missing/empty conditions), headline numbers (with a "Standing caveats" bullet block after the table), artifacts. **No separate Decision Log H2, no separate Caveats H2.**
 
 ### Step 5: Verify
 

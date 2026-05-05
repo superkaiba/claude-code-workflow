@@ -15,7 +15,7 @@ the comparison directly.
 import matplotlib.pyplot as plt
 import numpy as np
 
-from explore_persona_space.analysis.paper_plots import (
+from <your_project>.analysis.paper_plots import (
     add_direction_arrow,
     paper_palette,
     savefig_paper,
@@ -24,11 +24,11 @@ from explore_persona_space.analysis.paper_plots import (
 
 set_paper_style("generic")
 
-conditions = ["baseline", "c1", "c6", "c7"]
-aims = ["Aim 1 (geometry)", "Aim 3 (propagation)", "Aim 4 (origins)", "Aim 5 (defense)"]
+conditions = ["baseline", "treatment_a", "treatment_b", "treatment_c"]
+facets = ["Facet 1", "Facet 2", "Facet 3", "Facet 4"]
 
 rng = np.random.RandomState(0)
-values = rng.rand(len(aims), len(conditions)) * 0.5 + 0.4
+values = rng.rand(len(facets), len(conditions)) * 0.5 + 0.4
 errs = np.full_like(values, 0.03)
 
 fig, axes = plt.subplots(
@@ -39,17 +39,17 @@ colors = paper_palette(len(conditions))
 
 for idx, ax in enumerate(axes.flat):
     ax.bar(conditions, values[idx], yerr=errs[idx], color=colors, capsize=3)
-    ax.set_title(aims[idx], fontsize=10)
+    ax.set_title(facets[idx], fontsize=10)
     ax.set_ylim(0, 1.05)
     if idx >= 2:
         plt.setp(ax.get_xticklabels(), rotation=15, ha="right")
 
 # Shared y-label + direction arrow, applied ONCE to the figure-level axes
 for ax in axes[:, 0]:
-    ax.set_ylabel("Alignment rate")
+    ax.set_ylabel("Metric")
     add_direction_arrow(ax, axis="y", direction="up")
 
-savefig_paper(fig, "summary/alignment_by_aim_grid", dir="figures/")
+savefig_paper(fig, "summary/metric_by_facet_grid", dir="figures/")
 plt.close(fig)
 ```
 

@@ -12,16 +12,15 @@ globs:
 
 | Artifact | Lives at | Authoritative for |
 |---|---|---|
-| Per-run structured results (JSON) | `eval_results/<name>/run_result.json` + WandB Artifact | Raw numbers, reproducibility metadata |
+| Per-run structured results (JSON) | `eval_results/<name>/run_result.json` + your results-store artifact | Raw numbers, reproducibility metadata |
 | Polished write-up per experiment | **GitHub clean-result issue** (label `clean-results`) | TL;DR + interpretation + confidence |
 | Headline-level findings | `RESULTS.md` | Cross-experiment claims a paper would cite |
 | Results index | `eval_results/INDEX.md` | Pointer table from issue # → result JSON path |
 | Ideas backlog | `docs/research_ideas.md` | Pre-issue brainstorm/promotion candidates |
 
-The legacy file-based research log (`research_log/`) has been retired and
-moved to `archive/research_log/`. Do not write there. The clean-result
-GitHub issue created by the analyzer at the end of `/issue` is the durable,
-canonical artifact for every experiment.
+The clean-result GitHub issue created by the analyzer at the end of `/issue`
+is the durable, canonical artifact for every experiment. Don't keep a
+parallel file-based research log — the issue body is the record.
 
 ## Experiment Queue
 
@@ -34,7 +33,7 @@ carrying its lifecycle state in a `status:*` label (`proposed` →
 
 Each issue's body must be actionable:
 - BAD: "Try different learning rates"
-- GOOD: "SFT Llama3-8B on UltraChat, lr=3e-5, 3 epochs, LoRA r=16"
+- GOOD: "SFT <model-name> on <dataset>, lr=3e-5, 3 epochs, LoRA r=16"
 
 Raw ideation output (pre-issue brainstorms from `/ideation`) lives at
 `docs/ideas/YYYY-MM-DD.md`. The user promotes worthwhile ideas to GitHub
@@ -42,10 +41,10 @@ issues with `gh issue create --label status:proposed`.
 
 ## Environment Bootstrap
 
-Every entrypoint calls `setup_env()` from `src/explore_persona_space/utils.py`:
-- Loads `.env` (API keys)
-- Sets `HF_HOME` to persistent storage (`/workspace/.cache/huggingface` on RunPod)
-- All environment setup lives in code — never manually export variables
+Every entrypoint should call a single project-level `setup_env()` helper that:
+- Loads `.env` (API keys for results store, artifact store, judge model, etc.)
+- Sets the model-cache path to persistent storage on the compute target
+- Performs no manual environment-variable exports outside of code
 
 ## Agent Roles
 

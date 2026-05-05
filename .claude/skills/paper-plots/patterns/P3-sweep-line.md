@@ -13,7 +13,7 @@ epochs, training-data size, model scale), with seeds-as-error-bars.
 import matplotlib.pyplot as plt
 import numpy as np
 
-from explore_persona_space.analysis.paper_plots import (
+from <your_project>.analysis.paper_plots import (
     add_direction_arrow,
     paper_palette,
     savefig_paper,
@@ -32,7 +32,7 @@ sems = np.array([
     [0.02, 0.03, 0.02, 0.02, 0.04],
     [0.02, 0.03, 0.03, 0.03, 0.03],
 ])
-labels = ["tulu_25 (claim)", "tulu_100 (baseline)"]
+labels = ["treatment (claim)", "control (baseline)"]
 colors = paper_palette(len(labels))
 
 fig, ax = plt.subplots()
@@ -51,7 +51,7 @@ for i, (lbl, col) in enumerate(zip(labels, colors)):
 
 ax.set_xscale("log")
 ax.set_xlabel("Learning rate")
-ax.set_ylabel("Effect size (η²)")
+ax.set_ylabel("Metric")
 add_direction_arrow(ax, axis="y", direction="up")
 ax.legend(loc="upper left")
 

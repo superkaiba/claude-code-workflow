@@ -1,8 +1,7 @@
 # P2 — Pre vs Post Intervention (Paired)
 
 **Use when:** Showing how a metric changes from *before* to *after* an
-intervention (e.g. before EM induction vs after), ideally with paired
-seeds or runs.
+intervention, ideally with paired seeds or runs.
 
 **Do NOT use when:**
 - No pairing (unpaired comparison) → P1 (bar).
@@ -14,7 +13,7 @@ seeds or runs.
 import matplotlib.pyplot as plt
 import numpy as np
 
-from explore_persona_space.analysis.paper_plots import (
+from <your_project>.analysis.paper_plots import (
     add_direction_arrow,
     paper_palette,
     savefig_paper,
@@ -51,10 +50,10 @@ ax.scatter([0] * len(pre), pre, color=c_pre, s=30, zorder=2, label="pre")
 ax.scatter([1] * len(post), post, color=c_post, s=30, zorder=2, label="post")
 
 ax.set_xticks([0, 1])
-ax.set_xticklabels(["Pre EM", "Post EM"])
+ax.set_xticklabels(["Pre", "Post"])
 ax.set_xlim(-0.3, 1.3)
 ax.set_ylim(0, 1.05)
-ax.set_ylabel("Alignment rate")
+ax.set_ylabel("Metric")
 add_direction_arrow(ax, axis="y", direction="up")
 ax.legend(loc="lower left")
 
@@ -68,7 +67,7 @@ ax.annotate(
     bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="lightgrey", lw=0.5),
 )
 
-savefig_paper(fig, "aim5/em_pre_post", dir="figures/")
+savefig_paper(fig, "aim5/intervention_pre_post", dir="figures/")
 plt.close(fig)
 ```
 

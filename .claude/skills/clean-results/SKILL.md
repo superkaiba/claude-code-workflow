@@ -30,9 +30,9 @@ posted on an issue and a full clean-result GitHub issue differ only in
 (a) where they live and (b) whether `scripts/verify_clean_result.py` has
 been run.
 
-**Reference exemplar:**
-- issue **#75** (`Weak evidence that evil-persona capability coupling reduces post-EM capability (LOW confidence)`) — **preferred structure** (4-subsection TL;DR with takeaways + confidence folded into Results; Detailed report without Decision Log / Caveats H2s). Match this shape for every new clean result.
-- Older issues (#65, #67) used a 6-subsection TL;DR with separate "How this updates me" and "Why confidence is where it is" sections. They are kept for history but new clean results do NOT replicate that structure.
+Match the shape described in `template.md`: a 4-subsection TL;DR with
+takeaways + confidence folded into Results; a Detailed report without
+separate Decision Log / Caveats H2s.
 
 ---
 
@@ -107,7 +107,7 @@ Match `template.md` exactly. The shape is:
     ## Human summary                     ← 2-5 sentences, plain English, user's voice
     ## Source issues
     ## Setup & hyper-parameters          ← absorbs Reproducibility Card + "why this experiment" prose
-    ## WandB
+    ## Results store URL
     ## Sample outputs                    ← `### Condition: <name>` H3s with >=3 fenced examples each
     ## Headline numbers                  ← standing caveats listed inline after the table
     ## Artifacts
@@ -135,7 +135,7 @@ Read, in this order:
 2. The results (`epm:results`) and analyzer draft (`epm:analysis`).
 3. Any cached draft at `.claude/cache/issue-<N>-clean-result.md`.
 4. The actual `eval_results/*/run_result.json` and `figures/*`.
-5. WandB run URLs.
+5. Results-store run URLs.
 
 **Never trust the draft's prose for numbers — pull numbers from JSON.** The
 common failure mode: draft says 92%, JSON says 89%. Check.
@@ -158,7 +158,7 @@ Use the `paper-plots` skill to build / regenerate the hero figure. The
 skill enforces colorblind-safe palette, error bars, direction arrows,
 commit-pinned `.meta.json` sidecar, PNG + PDF dual save. Do not build
 figures with ad-hoc `plt.rcParams.update(...)`; always go through
-`src/explore_persona_space/analysis/paper_plots.set_paper_style()`.
+your project's `analysis/paper_plots.set_paper_style()`.
 
 One figure. Labeled axes with direction. Error bars. ≤ 3-5 colors.
 Readable on a video call. Committed at `figures/<experiment>/<name>.{png,pdf}`.
@@ -213,8 +213,8 @@ gh issue edit <SOURCE-N> \
 For multi-source consolidation (`/clean-results <N1>,<N2>,<N3>`): pick the
 PRIMARY source issue (the one whose claim is strengthened most) and
 `body-promote` into it. Add prose `Source-issues: #<N1>, #<N2>, #<N3>` and
-`Supersedes: #<M>` lines at the top of the TL;DR per the narrative shape
-(Stage 3). On each secondary source, post:
+`Supersedes: #<M>` lines at the top of the TL;DR per the narrative shape.
+On each secondary source, post:
 > Consolidated into clean-result on the primary issue: #<primary-N>.
 
 **Do NOT close source issues.** They stay open with `clean-results:draft`
@@ -233,8 +233,8 @@ Reads the `<!-- epm:original-body -->` comment, writes it back as the body, remo
 
 ## When to use this skill
 
-- Consolidating a cluster of related source issues (e.g., a sweep spanning
-  #28, #46, pilot issues) into one presentable result.
+- Consolidating a cluster of related source issues (e.g., a sweep with
+  pilot issues) into one presentable result.
 - Back-filling a clean-result for an older source issue that predates the
   unified analyzer pipeline.
 - Promoting a `clean-results:draft` issue to final when the automatic

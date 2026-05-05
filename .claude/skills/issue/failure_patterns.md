@@ -21,8 +21,8 @@ NCCL (timeout|error)
 SSH connection refused|No route to host|Connection timed out
 401 Unauthorized|gated repo
 RuntimeError: CUDA error
-Failed to initialize.*vllm
-Traceback.*\b(vllm|transformers|peft|trl|torch|xformers)/
+Failed to initialize.*<inference-engine>
+Traceback.*\b(<third-party-package>|<another>)/
 ```
 
 ## Code patterns (regex, case-insensitive)
@@ -31,7 +31,7 @@ These are NOT used for inference (the fallback only looks for infra).
 Listed here for completeness of the experimenter agent's checklist:
 
 ```
-Traceback.*\b(src/explore_persona_space|scripts)/
+Traceback.*\b(src/<your_project>|scripts)/
 ^AssertionError
 ^TypeError
 ^KeyError
