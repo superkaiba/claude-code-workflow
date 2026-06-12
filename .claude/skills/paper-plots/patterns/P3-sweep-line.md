@@ -13,14 +13,16 @@ epochs, training-data size, model scale), with seeds-as-error-bars.
 import matplotlib.pyplot as plt
 import numpy as np
 
-from <your_project>.analysis.paper_plots import (
+from research_workflow.analysis.paper_plots import (
     add_direction_arrow,
     paper_palette,
     savefig_paper,
     set_paper_style,
 )
 
-set_paper_style("neurips")
+# "blog" = clean-result + slide register (default). Switch to "neurips"
+# for paper figures.
+set_paper_style("blog")
 
 lrs = np.array([1e-6, 3e-6, 1e-5, 3e-5, 1e-4])
 # shape (conditions, lrs, seeds) — here 2 conditions × 5 LRs × 3 seeds
@@ -32,7 +34,7 @@ sems = np.array([
     [0.02, 0.03, 0.02, 0.02, 0.04],
     [0.02, 0.03, 0.03, 0.03, 0.03],
 ])
-labels = ["treatment (claim)", "control (baseline)"]
+labels = ["tulu_25 (claim)", "tulu_100 (baseline)"]
 colors = paper_palette(len(labels))
 
 fig, ax = plt.subplots()
@@ -51,7 +53,7 @@ for i, (lbl, col) in enumerate(zip(labels, colors)):
 
 ax.set_xscale("log")
 ax.set_xlabel("Learning rate")
-ax.set_ylabel("Metric")
+ax.set_ylabel("Effect size (η²)")
 add_direction_arrow(ax, axis="y", direction="up")
 ax.legend(loc="upper left")
 

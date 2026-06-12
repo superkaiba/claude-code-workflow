@@ -1,0 +1,255 @@
+---
+name: promote-clean-result
+description: >
+  Workflow for moving an `awaiting_promotion` task to `completed` with
+  `classification='useful'` (or `'not-useful'`). Scans the
+  `tasks/awaiting_promotion/` folder for consolidation candidates, refines
+  the body if needed, runs `verify_task_body.py`, and hands off the
+  `task.py promote` command. Use when the user says "promote #N",
+  "clean up Awaiting promotion", or "help me refine the TL;DR for X".
+user_invocable: true
+---
+
+# Promote a clean-result
+
+Awaiting-promotion tasks are clean-result-critic-PASSed bodies parked at
+`tasks/awaiting_promotion/<N>/` with `has_clean_result: true` and
+`classification: pending` in frontmatter. Promotion is **user-only** by
+design (CLAUDE.md park-and-wait gate) — `/issue` cannot move them. This
+skill gets one task ready and hands off the `task.py promote <N>
+useful|not-useful` command for the user to run.
+
+**Apply first, iterate after.** Don't pre-propose every TL;DR draft in
+chat — refine the body, run the quality gates, push, then iterate against
+the live body. The only pre-apply user gate is Step 1 (consolidation
+candidates), because merging is destructive.
+
+**Batch-promote prescan.** When the user issues a MULTI-task promote
+directive ("promote everything before #K", "move these N to completed"),
+do NOT classify the whole batch `useful` blind: first grep each
+candidate's title + body head for `BUGGED`, `invalid`, `headline not
+obtained`, or an explicitly-failed manipulation check, and present a
+one-line check — "these M look not-useful: #a (BUGGED), #b (...) — promote
+as useful anyway?" — before running the loop. On 2026-06-09 a 53-task
+blanket-useful batch promoted #407, whose body literally begins "# BUGGED
+experiment", and the user had to catch and flip it minutes later via a
+status round-trip.
+
+**All body-shape rules live in `.claude/skills/clean-results/SPEC.md`
+(2-content-section nested-design v2 spec — three required H2 sections
+in order: `## Human TL;DR` / `## TL;DR` / `## Reproducibility`; with
+`## TL;DR` carrying `### Motivation` / `### What I ran` /
+`### Findings` (parent) → `#### <finding>` per result for
+v2-sentinelled bodies; confidence in H1 title tag only for v2 bodies).
+Enforced mechanically by `scripts/verify_task_body.py` (19 checks).
+Workflow + apply mechanics only here.
+
+---
+
+## When to use
+
+- User says "promote #N", "let's clean up Awaiting promotion", "write the
+  TL;DR for X", or pastes an project dashboard link to an
+  `awaiting_promotion` task.
+- One task per skill invocation — `/clear` between tasks so each draft
+  gets clean attention.
+
+## When NOT to use
+
+- For drafting figures or analysis content. That's the analyzer /
+  interpretation-critic / clean-result-critic loop's job.
+- For posting net-new clean-results. That's `/issue`'s analyzer step.
+- For changing the `useful` / `not-useful` decision after promotion.
+  Re-run `task.py promote` directly.
+
+---
+
+## Step 1 — Scan for consolidation candidates (pre-apply gate)
+
+Run:
+
+```bash
+uv run python scripts/task.py list-by-status --status awaiting_promotion --json \
+  | jq -r '.[] | "#\(.id) \(.title)"'
+```
+
+If the user named a single `#N`, also check whether any other
+`awaiting_promotion` task has:
+
+- Same parent (frontmatter `parent_id` field), OR
+- Title overlap with `#N`'s title (rough cosine ≥ 0.4 by hand), OR
+- Time-adjacent (`created_at` within ±2 days)
+
+If consolidation candidates exist, surface them to the user before
+applying any changes:
+
+```
+Found possible consolidation: #<N> + #<M> share parent #<K>. Merge into
+one clean-result? (y/n)
+```
+
+If the user agrees, fold `#<M>`'s findings into `#<N>`'s body, then post
+on `#<M>`:
+
+```bash
+uv run python scripts/task.py post-marker <M> epm:consolidated-into \
+    --by promote-clean-result \
+    --note "Findings folded into #<N>. See https://dashboard.example.com/tasks/<N>."
+uv run python scripts/task.py set-status <M> archived \
+    --note "consolidated into #<N>"
+```
+
+If the user declines or there are no candidates, proceed.
+
+## Step 2 — Inspect the body
+
+```bash
+uv run python scripts/task.py find <N>
+# Then read tasks/awaiting_promotion/<N>/body.md
+```
+
+Detect format:
+
+- **Markdown clean-result (current, new tasks):** opens with `# <title>
+  (LOW|MODERATE|HIGH confidence)` then `## Human TL;DR` / `## TL;DR` /
+  `## Reproducibility`. For v2 nested-design bodies (sentinel
+  `<!-- clean-result-v2 -->` present after the H1), `## TL;DR` carries
+  `### Motivation` / `### What I ran` / `### Findings` H3s with one
+  `#### <finding>` H4 per result. Refine in place.
+- **Legacy Sagan-card HTML (grandfathered, imported from Sagan):** has
+  `<!-- legacy-sagan-card -->` sentinel + inline `<style>` block.
+  Optionally convert to markdown if the user asks (see Step 4b);
+  otherwise leave as-is for historical viewing.
+
+## Step 3 — Refine the body
+
+Read the spec at `.claude/skills/clean-results/SPEC.md` (canonical) and
+the summary under "Experiment Report Structure" in `CLAUDE.md`. Common
+refinements at this stage:
+
+- Title says exactly what the result is (not the experiment name) and
+  ends with `(LOW|MODERATE|HIGH confidence)`.
+- v2 body carries the `<!-- clean-result-v2 -->` sentinel right after
+  the H1; `## TL;DR` is shaped as `### Motivation` / `### What I ran` /
+  `### Findings` (parent) → `#### <finding>` per result.
+- `### Motivation` is the only place issue numbers appear (`[#K](...)`).
+- `### What I ran` is standalone — no cross-issue framing.
+- Reproducibility URLs are all permanent-pinned (`/tree/<sha>`,
+  `/runs/<id>`, `/blob/<sha>`), no `TBD` / `{{` / `default` /
+  `see config`.
+- For v2 bodies: confidence lives in the H1 title tag ONLY — do NOT
+  emit a body `Confidence: …` sentence in `## Reproducibility`.
+
+Apply edits to the body via:
+
+```bash
+uv run python scripts/task.py set-body <N> --file /tmp/refined-body.md --snapshot
+uv run python scripts/task.py set-title <N> "<title from H1, minus '# '>"
+```
+
+The `--snapshot` flag saves the prior body to
+`tasks/awaiting_promotion/<N>/original-body.md`. The body is replaced
+atomically + git committed.
+
+## Step 4 — Verify
+
+```bash
+uv run python scripts/verify_task_body.py --issue <N>
+```
+
+Every FAIL must be fixed before handoff. Iterate Step 3 → Step 4 until
+the verifier PASSes. Also run the anti-pattern audit:
+
+```bash
+uv run python scripts/audit_clean_results_body_discipline.py \
+    "$(uv run python scripts/task.py find <N>)/body.md"
+```
+
+### Step 4b — (Optional) Convert legacy HTML body to markdown
+
+If the body has `<!-- legacy-sagan-card -->` and the user asks for
+markdown conversion:
+
+1. Read the HTML body and extract: title, TL;DR bullets, figure URL +
+   caption, Details narrative, Reproducibility section, confidence
+   level.
+2. Write the markdown body to `/tmp/converted-<N>.md` following the
+   markdown spec.
+3. Run `verify_task_body.py --file /tmp/converted-<N>.md` until PASS.
+4. Apply via `task.py set-body --file --snapshot`.
+
+The legacy HTML body is preserved in `original-body.md` after the
+snapshot — re-running `task.py set-body --file original-body.md
+--snapshot` restores it.
+
+## Step 5 — Iterate with the user
+
+Push the dashboard link:
+
+```
+Body refined. Review at https://dashboard.example.com/tasks/<N>
+```
+
+The user reads the live body on the project dashboard and asks for tweaks;
+you apply them in place via repeated `task.py set-body` calls. Each
+edit is one git commit on `task-workflow`.
+
+## Step 6 — Execute (explicit intent) or hand off
+
+**If the user's request already carries explicit promote intent** —
+"promote N", "promote it", "promote N useful/not-useful" — and Steps
+3-5 PASS, run the command directly on their behalf:
+
+```
+uv run python scripts/task.py promote <N> useful   # or not-useful, per their words
+```
+
+The "user-only" rule means no AUTOMATION may flip
+`runs.classification` on its own; a human's explicit "promote N" in
+chat IS the user gate, and re-asking "ready to promote?" after they
+already said so is the anti-pattern (2026-06-10: the user said
+"Promote 488", got a summary instead of execution, and had to repeat
+"PROMOTE IT"). Ask ONLY when the classification is ambiguous (no
+useful/not-useful signal and the body suggests not-useful) or a gate
+FAILed.
+
+**Otherwise** (the user asked for a review/refine pass, not a
+promotion), hand off:
+
+```
+Ready to promote. Run:
+
+    uv run python scripts/task.py promote <N> useful
+
+or
+
+    uv run python scripts/task.py promote <N> not-useful
+```
+
+That command moves the task from `tasks/awaiting_promotion/<N>/` to
+`tasks/completed/<N>/`, records `classification: useful` (or
+`not-useful`) + `promoted_at: <ts>` in frontmatter, and posts
+`epm:promoted`. The user then re-invokes `/issue <N>` to fire the
+follow-up-proposer step.
+
+---
+
+## References
+
+- **`.claude/skills/clean-results/SPEC.md`** — canonical clean-result
+  spec (2-content-section nested-design v2: three required H2
+  sections in order; `## TL;DR` with `### Motivation` /
+  `### What I ran` / `### Findings` (parent) → `#### <finding>` per
+  result; confidence in H1 title tag only for v2 bodies; voice rules;
+  sample-output discipline).
+- **`CLAUDE.md` § "Experiment Report Structure"** — brief summary
+  pointing back at SPEC.md.
+- **`scripts/verify_task_body.py`** — mechanical verifier (19 checks
+  including the v2 sentinel-gated nested-structure check; skips
+  legacy `<!-- legacy-sagan-card -->` HTML bodies with PASS).
+- **`scripts/verify_sagan_card.py`** — legacy verifier retained for
+  grandfathered HTML bodies only.
+- **`scripts/audit_clean_results_body_discipline.py`** — prose-level
+  anti-pattern audit.
+- **`.claude/skills/clean-results/iterations.md`** — append-only log
+  of corrections + the rules they produced.

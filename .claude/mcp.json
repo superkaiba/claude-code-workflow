@@ -5,7 +5,7 @@
       "args": [
         "arxiv-mcp-server",
         "--storage-path",
-        ".arxiv-papers"
+        "<project-root>/.arxiv-papers"
       ]
     },
     "arxiv-latex": {

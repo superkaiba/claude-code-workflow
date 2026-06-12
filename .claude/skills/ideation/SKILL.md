@@ -63,11 +63,12 @@ Before any ideation, read the research state. You cannot generate good ideas fro
 READ ORDER:
 1. docs/research_ideas.md         → Aims, subtasks, phase tracker
 2. RESULTS.md                     → What's been established
-3. gh issue list --label clean-results --state all \
-     --json number,title,body,updatedAt --limit 30
+3. python scripts/task.py list-by-status --status completed --limit 30
                                   → Recent approved findings
-4. gh issue list --state open     → What's already queued / in flight (project board is the queue)
-5. docs/ideas/*.md                → Prior brainstorm dumps (pre-issue scratchpad)
+4. python scripts/task.py list-by-status --limit 200
+                                  → What's already queued / in flight in the task workflow
+5. logs/ideation/*.md             → Prior ideation session logs (current path)
+   docs/ideas/*.md                → Prior brainstorm dumps (grandfathered legacy path)
 6. eval_results/INDEX.md          → Recent eval summaries
 7. Agent memory                   → Past session learnings
 ```
@@ -128,9 +129,9 @@ List 5-10 assumptions the project currently holds, then reverse each:
 
 | Assumption | Reversal | What if the reversal is true? |
 |-----------|----------|-------------------------------|
-| Effect X is created by fine-tuning | Effect X exists in pretrained models | We could study X without any training |
-| More training data → stronger signal | There's a saturation point or U-curve | We're wasting compute past the critical threshold |
-| Property Y is unique to instruct models | It exists in base models too | Y is a property of the pretraining data |
+| Persona effects are created by fine-tuning | Persona structure exists in pretrained models | We could study personas without any training |
+| More training data → stronger persona signal | There's a saturation point or U-curve | We're wasting compute past the critical threshold |
+| The assistant axis is unique to instruct models | It exists in base models too | The axis is a property of the pretraining data |
 | [User fills in...] | [Reverse...] | [Explore implications...] |
 
 **Why this works:** De Bono's lateral thinking. Assumptions constrain the solution space. Reversing them forces you outside the current frame. Many breakthroughs come from questioning "obvious" assumptions.
@@ -154,12 +155,12 @@ Take the project's most recent significant result and apply each prompt:
 | Prompt | Question | Example |
 |--------|----------|---------|
 | **S**ubstitute | What component could we swap? | Different base model, different training method, different eval |
-| **C**ombine | What two things could we merge? | Combine two techniques into one experiment |
+| **C**ombine | What two things could we merge? | Midtraining + persona conditioning simultaneously |
 | **A**dapt | What technique from another field applies? | Concept erasure from vision, probing from BERTology |
-| **M**odify/Magnify/Minimize | What if we scaled dramatically? | Sweep N up by 10x or down by 10x |
-| **P**ut to other use | Can this method answer a different question? | Re-purpose existing artifacts as a tool for a different study |
-| **E**liminate | What happens if we remove something assumed necessary? | Skip a phase that everyone assumes is needed |
-| **R**everse | What if we did it backward? | Run the pipeline in reverse order |
+| **M**odify/Magnify/Minimize | What if we scaled dramatically? | 200 personas instead of 8; 1 persona with deep ablation |
+| **P**ut to other use | Can this method answer a different question? | Use persona-trained models to study feature circuits |
+| **E**liminate | What happens if we remove something assumed necessary? | Skip fine-tuning, study in-context persona adoption |
+| **R**everse | What if we did it backward? | Start misaligned, try to erase the persona; evaluate then train |
 
 ### 2B. Combinatorial Matrix (Morphological Analysis)
 
@@ -167,11 +168,11 @@ Identify 4-6 independent dimensions of the experimental design. List 3-5 values 
 
 | Dimension | Values |
 |-----------|--------|
-| Base model | (list of base models in your project's scope) |
+| Base model | Qwen-7B, Llama-8B, Mistral-7B, Pythia-6.9B, GPT-2-XL |
 | Training method | SFT, DPO, LoRA, full finetune, midtraining, ICL (no training) |
-| Data type | (list of data sources / formats) |
-| Evaluation | Probing, LLM judge, behavioral, geometric, mechanistic |
-| Scale | (list of scales / N values relevant to your project) |
+| Data type | Persona dialogs, persona descriptions, synthetic personas, web text with personas |
+| Evaluation | Probing, LLM judge, behavioral, geometric (cosine), mechanistic (activation patching) |
+| Scale | 8 personas, 50, 200, 1000, cross-model transfer |
 
 With 5 dimensions x 5 values = 3,125 combinations. Scan 15-20 random ones. Flag any combination that:
 - Has never been tried
@@ -182,13 +183,13 @@ With 5 dimensions x 5 values = 3,125 combinations. Scan 15-20 random ones. Flag 
 
 Abstract the current research problem, then find structural parallels in distant fields:
 
-1. State the problem without jargon (one short sentence — what's the abstract structure?).
+1. State the problem without jargon: *"We're trying to find meaningful structure in a high-dimensional representation space and understand what creates it."*
 2. Ask: "Where else does this structure appear?"
-   - **Ecology**: clustering along environmental gradients.
-   - **Genetics**: expression spaces with principal axes.
-   - **Physics**: phase transitions producing sudden qualitative change.
-   - **Economics**: market dynamics, herding, regime shifts.
-   - **Neuroscience**: specialization and modularity.
+   - **Ecology**: Species cluster by ecological niche along environmental gradients. What are the "environmental gradients" of persona space?
+   - **Genetics**: Gene expression spaces have principal axes reflecting cell type. Are persona axes analogous to cell-type axes?
+   - **Physics**: Phase transitions create sudden qualitative changes. Is there a "phase transition" in persona acquisition during training?
+   - **Economics**: Market dynamics show herding and regime shifts. Do persona representations show similar dynamics during training?
+   - **Neuroscience**: Brain regions specialize for functions. Do model layers specialize for persona vs. capability?
 
 Research shows biological and cross-domain analogies produce **more novel ideas** than within-domain analogies.
 
@@ -196,9 +197,9 @@ Research shows biological and cross-domain analogies produce **more novel ideas*
 
 Invoke different research perspectives:
 
-- **The mechanistic interpretability researcher**: "Can we find the circuit that implements this? What happens if we ablate it?"
-- **The scaling laws researcher**: "Does this property have scaling laws? How does it change with model size, data size, training time?"
-- **The adversarial researcher**: "How could someone exploit this? What's the attack surface?"
+- **The mechanistic interpretability researcher**: "Can we find the circuit that implements persona conditioning? What happens if we ablate it?"
+- **The scaling laws researcher**: "Does persona geometry have scaling laws? How does it change with model size, data size, training time?"
+- **The adversarial researcher**: "How could someone exploit persona conditioning? What's the attack surface?"
 - **The theorist**: "What mathematical framework would predict these results? Is there a clean formalization?"
 - **The skeptic**: "What's the simplest explanation for everything we've observed that involves no interesting mechanism at all?"
 
@@ -207,12 +208,12 @@ Invoke different research perspectives:
 If the group runs dry, inject randomness. Pick a random word and force connections:
 
 1. Random noun: **"River"**
-2. Attributes: flows, has tributaries, erodes over time, follows least resistance, has depth, connects distant places.
-3. Forced connections to your research question:
-   - "Flows" → does the effect flow through layers? Track propagation layer by layer.
-   - "Erodes" → does the signal erode with continued training? Measure at every checkpoint.
-   - "Least resistance" → maybe the effect "sticks" when it aligns with existing pretrained features (low-resistance path).
-   - "Tributaries" → multiple data sources contributing to one effect. How do they interact?
+2. Attributes: flows, has tributaries, erodes over time, follows least resistance, has depth, connects distant places
+3. Forced connections to persona research:
+   - "Flows" → Do persona features flow through layers? Track propagation layer by layer.
+   - "Erodes" → Does persona signal erode with continued training? Measure at every checkpoint.
+   - "Least resistance" → Maybe personas "stick" when they align with existing pretrained features (low resistance path).
+   - "Tributaries" → Multiple data sources contributing to one persona. How do they interact?
 
 ---
 
@@ -356,7 +357,90 @@ For ideas the user approves:
 - **If the idea needs literature review first** → spawn a research agent
 - **If the idea changes research direction** → update `docs/research_ideas.md`
 
-Dump the full raw brainstorm (all ideas, not just ranked survivors) to `docs/ideas/YYYY-MM-DD.md` as an audit trail. For ideas the user approves, create GitHub issues with `gh issue create --label status:proposed` — the project board is the queue. Do NOT write to a markdown queue file (there isn't one).
+For ideas the user approves, create task folders with
+`uv run python scripts/task.py new --kind experiment --title "..." --body-file /tmp/hypothesis.md`
+(new tasks land in `status=proposed`). `tasks/` is the queue; do not use
+local markdown queues or external tracker state as workflow state.
+
+### 4C. Write the session log
+
+Dump the full raw brainstorm (all ideas, not just ranked survivors) to
+`logs/ideation/YYYY-MM-DD-<topic-slug>.md` (relative to the repo root —
+`~/your-project/`). The file is a stub the user will finish editing.
+It starts hidden from the `/log` dashboard feed (`visible: false`).
+
+**Topic slug:** lowercase, hyphenated, max 40 chars, derived from the
+session's stated topic or focus. Strip punctuation, collapse whitespace to
+hyphens, truncate at a word boundary. Examples:
+
+| Session focus                            | Slug                              |
+|------------------------------------------|-----------------------------------|
+| "Persona vector geometry"                | `persona-vector-geometry`         |
+| "What if EM is just a refusal axis?"     | `what-if-em-is-just-a-refusal-axis` |
+| (no focus — generic session)             | `general`                         |
+
+**Collision handling:** if `logs/ideation/<date>-<slug>.md` already exists,
+append `-2`, `-3`, … to the slug (BEFORE the `.md`) until you find a free path.
+
+### Frontmatter
+
+Every file MUST have this YAML frontmatter:
+
+```yaml
+---
+kind: ideation
+date: YYYY-MM-DD
+title: <one-line summary of the session focus — the user can edit>
+included_tasks: [<IDs of proposed tasks created in 4B above; [] if none>]
+visible: false
+---
+```
+
+- `date`: today in ISO format.
+- `visible: false` ALWAYS at creation. Never set `true`. the user flips it manually.
+- `included_tasks`: the integer IDs of the `status=proposed` tasks created
+  in step 4B above (as returned by `task.py new`). Empty list `[]` if the
+  session produced no approved-to-queue ideas.
+
+### Body (stub sections)
+
+Below the frontmatter, write exactly these three H2 sections, then dump the
+full raw brainstorm BELOW them (so the audit trail is preserved):
+
+```markdown
+## What happened
+<2-5 bullets: what was brainstormed, the techniques applied (SCAMPER,
+assumption reversal, etc.), and what was queued. Auto-drafted from the
+session — the user will edit.>
+
+## My thoughts
+<leave empty — the user fills in>
+
+## Highlighted results
+- #<N> — <proposed-task title>
+- #<M> — <proposed-task title>
+
+---
+
+## Raw brainstorm
+<full Phase 4A ranked-ideas output here, plus all deferred ideas, themes,
+and anomalies — the audit trail>
+```
+
+`Highlighted results` starts as a one-line stub per `included_tasks` entry
+(just the title from the corresponding `task.py new` output). If
+`included_tasks` is empty, write a single bullet: `- _no tasks queued from this session_`.
+
+### Commit
+
+After writing the file, commit it so the dashboard picks it up:
+
+```bash
+git add logs/ideation/YYYY-MM-DD-<slug>.md
+git commit -m "logs: ideation stub for YYYY-MM-DD-<slug>"
+```
+
+Do not push.
 
 ---
 

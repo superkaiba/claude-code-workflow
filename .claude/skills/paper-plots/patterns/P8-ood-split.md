@@ -14,7 +14,7 @@ eval set AND on a held-out OOD set. The IID vs OOD gap is usually the point.
 import matplotlib.pyplot as plt
 import numpy as np
 
-from <your_project>.analysis.paper_plots import (
+from research_workflow.analysis.paper_plots import (
     add_direction_arrow,
     paper_palette,
     proportion_ci,
@@ -22,9 +22,11 @@ from <your_project>.analysis.paper_plots import (
     set_paper_style,
 )
 
-set_paper_style("neurips")
+# "blog" = clean-result + slide register (default). Switch to "neurips"
+# for paper figures.
+set_paper_style("blog")
 
-conditions = ["baseline", "treatment_low", "treatment_high"]
+conditions = ["baseline", "tulu_25", "tulu_100"]
 iid = np.array([0.91, 0.82, 0.70])
 ood = np.array([0.83, 0.71, 0.58])
 n_iid = n_ood = 200
@@ -60,7 +62,7 @@ for i in range(len(conditions)):
 ax.set_xticks(x)
 ax.set_xticklabels(conditions)
 ax.set_ylim(0, 1.15)
-ax.set_ylabel("Metric")
+ax.set_ylabel("Alignment rate")
 add_direction_arrow(ax, axis="y", direction="up")
 ax.legend(loc="upper right")
 
@@ -72,8 +74,8 @@ plt.close(fig)
 
 - **Don't hide the gap.** The Δ between IID and OOD is the claim — annotate
   it explicitly on the figure. Readers should not need to eyeball.
-- **Don't mix metrics across splits.** If IID and OOD use different metrics,
-  you have two figures, not one.
+- **Don't mix metrics across splits.** If IID is alignment-rate and OOD is
+  F1, you have two figures, not one.
 - **Don't omit OOD when you have it.** IID-only results are deeply limited;
   even a noisy OOD bar is better than no OOD bar, and honesty about the gap
   earns trust.

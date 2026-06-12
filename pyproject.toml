@@ -1,0 +1,30 @@
+[project]
+name = "research-workflow"
+version = "0.2.0"
+description = "Claude Code agentic research workflow — file-based task lifecycle, adversarial review ensemble, Happy/tmux session orchestration, multi-cloud compute router"
+requires-python = ">=3.11"
+dependencies = [
+    "pyyaml",
+    "requests",
+    "python-dotenv",
+    "anthropic>=0.86",
+    "openai>=2.0",
+    "huggingface-hub",
+]
+
+[dependency-groups]
+dev = ["pytest", "ruff"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/research_workflow"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

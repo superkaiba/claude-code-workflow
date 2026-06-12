@@ -1,17 +1,17 @@
 ---
 name: auto-experiment-runner
-description: Use when running experiments autonomously overnight. Two modes — Queue mode (picks up `status:approved` GitHub issues via `gh`) and Autonomous mode (proposes and runs when no approved issues exist). Per-experiment drafts are cached at `.claude/cache/issue-<N>-clean-result.md` and promoted to clean-result GitHub issues by the analyzer. Includes failure auto-diagnosis, safety rails, and cost limits.
+description: Use when running experiments autonomously overnight. Two modes — Queue mode (picks up `status='approved'` experiments from the task workflow via `task.py list-by-status`) and Autonomous mode (proposes and runs when no approved experiments exist). Per-experiment drafts are cached at `.claude/cache/issue-<N>-clean-result.md` and promoted to clean-result experiment bodies in the task workflow by the analyzer. Includes failure auto-diagnosis, safety rails, and cost limits.
 ---
 
 # Auto-Experiment Runner
 
 ## Scope & Boundaries
 
-**Owns:** overnight queue orchestration — picks up approved GitHub issues (`status:approved`) via `gh issue list` (or proposes via `experiment-proposer` in Autonomous mode), runs them via `/issue <N>` or `experiment-runner`, writes drafts, enforces cost/time limits.
+**Owns:** overnight queue orchestration — picks up approved experiments (`status='approved'`) from the task workflow via `task.py list-by-status` (or proposes via `experiment-proposer` in Autonomous mode), runs them via `/issue <N>` or `experiment-runner`, writes drafts, enforces cost/time limits.
 
 **Wraps:** `experiment-runner` (per-experiment execution), `experiment-proposer` (Autonomous-mode ideation).
 
-**Does NOT own:** publishing clean-result GitHub issues. The analyzer agent promotes cached drafts to clean-result issues; completed source issues auto-advance to Done via the `/issue` skill's reviewer PASS — no manual sign-off step.
+**Does NOT own:** publishing clean-result write-ups. The analyzer agent replaces the source experiment's body with a polished clean-result HTML clean-result and flips `has_clean_result=true`; completed source experiments auto-advance through task promotion. The task list (`https://dashboard.example.com/`) is the queue.
 
 ---
 
@@ -21,7 +21,7 @@ Run experiments overnight. Write everything to drafts. Never trust your own resu
 
 **Contract:** The auto-runner can run experiments and record results. It CANNOT:
 - Approve its own results
-- Promote drafts to clean-result GitHub issues (the analyzer does that)
+- Promote drafts to clean-result write-ups in the task workflow (the analyzer does that, in-place on the source experiment row)
 - Delete any data
 - Exceed cost/time limits
 - Modify source code
@@ -50,9 +50,9 @@ SAFETY LIMITS (defaults if not specified):
 - forbidden_operations: delete data, modify clean log, push git, modify source code
 ```
 
-2. **List approved GitHub issues** — determine mode:
+2. **List approved experiments in the task workflow** — determine mode:
    ```bash
-   gh issue list --label status:approved --state open --json number,title,labels --limit 20
+   uv run python scripts/task.py list-by-status --status approved --limit 20
    ```
    Non-empty → Queue mode; empty → Autonomous mode (if enabled) or STOP.
 3. **Read `.claude/cache/auto-experiment-runner.log`** — check what was already auto-generated (avoid duplicates)
@@ -72,33 +72,34 @@ Safety limits: [summarize]
 ## Mode Selection
 
 ```
-gh issue list --label status:approved --state open
+task.py list-by-status --status approved
   │
-  ├── Has approved issues? → QUEUE MODE
-  │     Pick next issue (oldest first, or by prio:* label if set)
+  ├── Has approved experiments? → QUEUE MODE
+  │     Pick next (oldest first, or by priority tag if set)
   │     Run it via `/issue <N>` — the issue skill handles the
   │     preflight/dispatch/monitor/analyzer/reviewer lifecycle
-  │     Loop: check for more approved issues
+  │     Loop: re-query for more approved experiments
   │
-  └── No approved issues?
+  └── No approved experiments?
         │
         ├── Autonomous mode enabled? → AUTONOMOUS MODE
         │     Read research context (use experiment-proposer logic)
         │     Propose ONE cheap experiment with rationale
-        │     Create a GitHub issue (status:proposed); let the user
+        │     Create a task folder (status='proposed') via
+        │     `task.py create-experiment`; let the user
         │     approve via the normal `/issue` planner flow, OR
         │     run end-to-end via `/issue <new-N>` if auto-approval
         │     is enabled in the session config
         │     Repeat (up to max_autonomous_experiments)
         │
         └── Autonomous mode disabled? → STOP
-              Log: "No approved issues, autonomous mode disabled. Stopping."
+              Log: "No approved experiments, autonomous mode disabled. Stopping."
 ```
 
 ### Queue Mode
 
-Run exactly what each approved issue specifies, via `/issue <N>`. The
-issue's `epm:plan` marker comment is the source of truth — the runner
+Run exactly what each approved experiment specifies, via `/issue <N>`.
+The experiment's `epm:plan` marker is the source of truth — the runner
 does not re-plan. No creative decisions.
 
 ### Autonomous Mode (Conservative Constraints)
@@ -178,7 +179,7 @@ When an experiment fails, diagnose before retrying.
 | Import error | Missing dependency | Do NOT retry (env bug) | 0 |
 | NaN/Inf loss | LR too high / numerical instability | Halve LR, add gradient clipping | 1 |
 | Timeout | Experiment too long | Log partial results, do NOT retry | 0 |
-| Connection error (results store, artifact store) | Network issue | Wait 5 min, retry | 2 |
+| Connection error (W&B, HF Hub) | Network issue | Wait 5 min, retry | 2 |
 | Process killed (signal 9) | System OOM or preemption | Wait 5 min, retry | 1 |
 | Unknown error | Something unexpected | Log full traceback, do NOT retry | 0 |
 
@@ -203,7 +204,7 @@ After an experiment completes successfully:
 
 ### Step 2: Write Draft Report
 
-File: `.claude/cache/issue-<N>-clean-result.md` (the analyzer agent later promotes this to a clean-result GitHub issue).
+File: `.claude/cache/issue-<N>-clean-result.md` (the analyzer agent later applies this to the task body and sets `has_clean_result=true`).
 
 ```markdown
 # [Experiment Name] — AUTO-GENERATED DRAFT
@@ -248,9 +249,8 @@ the runner is biased and cannot verify its own conclusions.]
 ### Step 3: Update Logs
 
 - Append one-liner to `.claude/cache/auto-experiment-runner.log` with UNREVIEWED marker
-- The `/issue <N>` skill handles state-label advancement automatically — no
-  manual queue-file update needed; the reviewer PASS transition moves the
-  issue to `status:done-experiment` on the project board.
+- The `/issue <N>` skill handles task status advancement automatically; no
+  manual queue-file update is needed.
 
 ---
 
@@ -259,7 +259,7 @@ the runner is biased and cannot verify its own conclusions.]
 ### Hard Limits (never exceeded, not configurable)
 
 - **Never delete ANY files** — data, checkpoints, logs, configs
-- **Never publish clean-result GitHub issues** — only the analyzer agent does that, after a human (or `/issue` reviewer pass) has signed off
+- **Never promote clean results yourself** — only the analyzer + user promotion does that, after human or reviewer sign-off
 - **Never push to git**
 - **Never modify source code** — only configs
 - **Never run destructive commands** — no `rm`, `git push`, `git checkout`, `pip install`
@@ -375,7 +375,7 @@ cat .claude/cache/auto-experiment-runner.log
 1. Read `.claude/cache/auto-experiment-runner.log` — scan what ran overnight
 2. Read the session summary block — check for failures or anomalies
 3. For each cached draft (`.claude/cache/issue-<N>-clean-result.md`):
-   - Quick: looks good → let the analyzer agent promote it to a clean-result GitHub issue (`/issue <N>` Step 7a)
+   - Quick: looks good → let the analyzer agent apply it to the task and use the task promotion flow
    - Suspicious: invoke `/independent-reviewer` on the cached draft
    - Bad: discard or note why in the draft
 4. Invoke `/experiment-proposer` to plan the next cycle

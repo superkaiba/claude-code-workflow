@@ -1,0 +1,20 @@
+# Daily Update — 2026-05-05
+
+## TL;DR
+Worked on issue #137 with pod epm-issue-137 today. Trained successfully.
+
+## Done Today
+SSH'd to epm-issue-137 (203.0.113.15:13615) and ran the experiment.
+Used HF_TOKEN=hf_AbCdEfGhIjKlMnOpQrStUvWxYz1234567890 and
+ANTHROPIC_API_KEY=sk-ant-abcdef1234567890abcdef1234567890abcdef1234567890
+to call the API. WandB key WANDB_API_KEY=abcdef1234567890abcdef1234567890abcdef12.
+
+The pod's team ID is YOUR_RUNPOD_TEAM_ID (Anthropic Safety Research).
+
+Email contact: user@example.com
+
+GraphQL endpoint: https://api.runpod.io/graphql?team=YOUR_RUNPOD_TEAM_ID
+
+OpenAI key tested: sk-proj-abcdefghijklmnopqrstuvwxyz1234567890ABCDEF.
+
+Followed up on issue epm-issue-200 (203.0.113.16:16193).

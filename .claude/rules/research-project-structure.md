@@ -12,39 +12,56 @@ globs:
 
 | Artifact | Lives at | Authoritative for |
 |---|---|---|
-| Per-run structured results (JSON) | `eval_results/<name>/run_result.json` + your results-store artifact | Raw numbers, reproducibility metadata |
-| Polished write-up per experiment | **GitHub clean-result issue** (label `clean-results`) | TL;DR + interpretation + confidence |
+| Per-run structured results (JSON) | `eval_results/<name>/run_result.json` + WandB Artifact | Raw numbers, reproducibility metadata |
+| Polished write-up per experiment | **Source experiment row in the task workflow, promoted in place** (body replaced with polished write-up, `has_clean_result=true`, one child `runs` row) | Human TL;DR + AI TL;DR + AI Summary + confidence |
 | Headline-level findings | `RESULTS.md` | Cross-experiment claims a paper would cite |
-| Results index | `eval_results/INDEX.md` | Pointer table from issue # → result JSON path |
-| Ideas backlog | `docs/research_ideas.md` | Pre-issue brainstorm/promotion candidates |
+| Results index | `eval_results/INDEX.md` | Pointer table from task number → result JSON path |
+| Ideas backlog | `docs/research_ideas.md` | Pre-experiment brainstorm/promotion candidates |
 
-The clean-result GitHub issue created by the analyzer at the end of `/issue`
-is the durable, canonical artifact for every experiment. Don't keep a
-parallel file-based research log — the issue body is the record.
+The legacy file-based research log (`research_log/`) has been retired
+and moved to `archive/research_log/`. Do not write there. The source
+experiment row, promoted in place to a clean-result by the analyzer
+at the end of `/issue`, is the durable, canonical artifact for every
+experiment.
 
 ## Experiment Queue
 
-**The GitHub project board IS the queue.** Every experiment is a GitHub issue
-carrying its lifecycle state in a `status:*` label (`proposed` →
-`planning` → `plan-pending` → `approved` → `implementing` →
-`code-reviewing` → `running` → `uploading` → `interpreting` →
-`reviewing` → `awaiting-promotion` → `done-experiment` / `done-impl`). Filter with
-`gh issue list --label status:<state>`. There is no markdown queue file.
+**The `tasks/` directory tree IS the queue.** Every experiment is a
+row carrying its lifecycle state in the `status` enum (`proposed` →
+`planning` → `plan_pending` → `approved` → `running` → `verifying` →
+`interpreting` → `reviewing` → `awaiting_promotion` →
+[`followups_running` while a same-issue follow-up round executes] →
+`completed` / `archived`). Filter with `python scripts/task.py list-by-status
+--status <state>` or browse the kanban at
+<https://dashboard.example.com/>. There is no markdown queue
+file.
 
-Each issue's body must be actionable:
+Each experiment's body must be actionable:
 - BAD: "Try different learning rates"
-- GOOD: "SFT <model-name> on <dataset>, lr=3e-5, 3 epochs, LoRA r=16"
+- GOOD: "SFT Llama3-8B on UltraChat, lr=3e-5, 3 epochs, LoRA r=16"
 
-Raw ideation output (pre-issue brainstorms from `/ideation`) lives at
-`docs/ideas/YYYY-MM-DD.md`. The user promotes worthwhile ideas to GitHub
-issues with `gh issue create --label status:proposed`.
+Raw ideation output (pre-experiment brainstorms from `/ideation`) lives
+at `docs/ideas/YYYY-MM-DD.md`. The user promotes worthwhile ideas to
+tasks via `uv run python scripts/task.py new --kind experiment
+--title "..." --body-file ...`.
 
 ## Environment Bootstrap
 
-Every entrypoint should call a single project-level `setup_env()` helper that:
-- Loads `.env` (API keys for results store, artifact store, judge model, etc.)
-- Sets the model-cache path to persistent storage on the compute target
-- Performs no manual environment-variable exports outside of code
+Every entrypoint calls `load_dotenv()` from
+`src/research_workflow/orchestrate/env.py` (there is NO `setup_env()`
+in `utils.py` — that name is stale; importing it crashes):
+- Loads `.env` (API keys) — `resolve_dotenv_path()` walks up from cwd
+- Sets `HF_HOME` to persistent storage (`/workspace/.cache/huggingface` on RunPod)
+- All environment setup lives in code — never manually export variables
+
+For ad-hoc inline shell/python one-liners that need API keys (HF-Hub
+fitness checks, quick probes), the canonical recipe is:
+`set -a && source .env && set +a && uv run python - <<'PY' ... PY`
+— never a bare `load_dotenv()` inside a heredoc (its no-arg
+`find_dotenv()` stack-walk crashes from stdin; see gotchas.md). For
+`scripts/*.sh` this is enforced mechanically by
+`scripts/workflow_lint.py --check-heredoc-dotenv` (bundled into the
+no-flags default run; incidents #552/#612).
 
 ## Agent Roles
 

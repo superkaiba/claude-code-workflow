@@ -68,7 +68,33 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cmd=$(echo $TOOL_INPUT | jq -r '.command // empty'); if echo \"$cmd\" | grep -qE '(scripts/train\\.py|scripts/eval\\.py|scripts/run_sweep\\.py|scripts/generate_)' && [ ! -f '.experiment-authorized' ]; then echo 'BLOCKED: Experiment commands must run through /issue. Create a GitHub issue first, then use /issue <N> to execute.' >&2; exit 1; fi"
+            "command": "cmd=$(echo $TOOL_INPUT | jq -r '.command // empty'); if echo \"$cmd\" | grep -qE '(scripts/train\\.py|scripts/eval\\.py|scripts/run_sweep\\.py|scripts/generate_)' && [ ! -f '.epm-authorized' ]; then echo 'BLOCKED: Experiment commands must run through /issue. Create a task first: `uv run python scripts/task.py new --kind experiment --title \"...\"`, then use /issue <N> where N is the printed task number.' >&2; exit 1; fi"
+          },
+          {
+            "type": "command",
+            "command": "cmd=$(jq -r '.tool_input.command // empty'); if echo \"$cmd\" | grep -qE 'ssh +epm-issue-[0-9]+ +.*git +pull'; then if [ -n \"$(cd $CLAUDE_PROJECT_DIR && git status --porcelain 2>/dev/null)\" ]; then echo 'WARNING: ssh + git pull on a pod with dirty local tree. Local has uncommitted changes — pulling on the pod creates divergent states. Commit/stash locally before pulling on the pod.' >&2; fi; fi"
+          },
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/scripts/guard_repo_root_branch.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "file_path=$(jq -r '.tool_input.file_path // empty'); if [ -n \"$file_path\" ] && echo \"$file_path\" | grep -qE '^/workspace/'; then echo \"WARNING: Editing $file_path under /workspace/. CLAUDE.md: 'All code changes on local VM, never on pods.' Likely a stale symlink or misconfigured clone — fix the path.\" >&2; fi"
+          }
+        ]
+      },
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "a=$(printf '%s' \"${EPM_AUTONOMOUS_SESSION:-}\" | tr '[:upper:]' '[:lower:]'); if [ -n \"$a\" ] && [ \"$a\" != \"0\" ] && [ \"$a\" != \"false\" ] && [ \"$a\" != \"no\" ]; then echo 'BLOCKED (autonomous session): AskUserQuestion is forbidden when EPM_AUTONOMOUS_SESSION is set. Autonomous policy: asking IS the failure mode — every fork must auto-resolve toward the task Goal. The conditional gates that previously asked (plan_approval, whack_a_mole_pivot, compute_deviation_resolution, concern_deferral_request, experiment_goal_refine, fact_candidates, living_docs_update, etc.) all have auto-resolve rules in `.claude/skills/issue/SKILL.md` § Autonomous session behavior. plan_approval is code-enforced by `task.py set-status <N> plan_pending --auto-approve-if-autonomous --gpu-hours <X>`. If you genuinely need user input that no autonomous reasoning can supply, post `epm:failure v1` with `failure_class: <code|infra|data>` and `set-status <N> blocked` instead. Re-read the task status and act on it; do NOT ask the user.' >&2; exit 2; fi"
           }
         ]
       }
@@ -79,7 +105,30 @@
         "hooks": [
           {
             "type": "command",
-            "command": "file_path=$(jq -r '.tool_input.file_path // .tool_response.filePath // empty'); if [ -n \"$file_path\" ] && echo \"$file_path\" | grep -qE '\\.py$'; then uv run ruff check --fix --quiet \"$file_path\" 2>/dev/null; uv run ruff format --quiet \"$file_path\" 2>/dev/null; fi"
+            "command": "file_path=$(jq -r '.tool_input.file_path // .tool_response.filePath // empty'); if [ -n \"$file_path\" ] && echo \"$file_path\" | grep -qE '\\.py$'; then cd $CLAUDE_PROJECT_DIR && uv run ruff check --fix --quiet \"$file_path\" 2>/dev/null; uv run ruff format --quiet \"$file_path\" 2>/dev/null; fi"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "nohup $CLAUDE_PROJECT_DIR/scripts/auto_push_main.sh >/dev/null 2>&1 &"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/scripts/daily_surface_hook.sh",
+            "timeout": 15,
+            "statusMessage": "Checking for daily-proposed workflow improvements..."
           }
         ]
       }

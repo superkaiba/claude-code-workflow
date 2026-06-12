@@ -24,18 +24,21 @@ is 30s+ of user attention saved.
 Run all of these in parallel and read the results, then draft questions only
 for the gaps that remain:
 
-1. **Past issues + clean results** — search GitHub for related work:
+1. **Past tasks + clean results** — search `tasks/` for related work:
    ```bash
-   # Issues whose body/title mentions the same key terms (model, condition, dataset, etc.)
-   gh issue list --search "<key terms from issue body>" --state all --limit 20 --json number,title,labels,url
-   # Clean-result issues (label `clean-results`) — these have polished write-ups + numbers
-   gh issue list --label clean-results --state all --limit 20 --json number,title,url
-   # If the issue body says `Parent: #<M>` or cites another issue, fetch it directly:
-   gh issue view <M> --json title,body,labels,comments
+   # All completed tasks:
+   uv run python scripts/task.py list-by-status --status completed --limit 200
+
+   # Just the promoted clean-results (the polished write-ups + numbers):
+   uv run python scripts/task.py list-by-status --status completed --json \
+       | jq -r '.[] | select(.has_clean_result==true) | "#\(.id) \(.title)"' | head -50
+
+   # If the body cites another task by number, fetch it directly:
+   uv run python scripts/task.py view <M>
    ```
    Skim titles + TL;DRs. If a clean-result already establishes a baseline,
-   number, or methodology that the current issue is implicitly referring to,
-   note it — don't re-ask.
+   number, or methodology that the current experiment is implicitly
+   referring to, note it — don't re-ask.
 
 2. **Repo literature — has someone (us OR prior work) already run something
    like this?** This is the highest-value pass: surfacing a duplicate or
@@ -43,7 +46,8 @@ for the gaps that remain:
    external knowledge:
 
    **Internal (us):**
-   - `gh issue list --label clean-results --state all --search "<terms>"` —
+   - Clean-result experiments filtered by query string in the dashboard
+     <https://dashboard.example.com/?has_clean_result=true> —
      polished write-ups + numbers from our own past experiments.
    - `RESULTS.md` — headline-level findings; if any of them already address
      the current question, surface it before drafting any clarifying question.
@@ -56,13 +60,13 @@ for the gaps that remain:
      technique, dataset, hypothesis). If a paper already reports the same
      intervention + result, surface it — running a duplicate is a waste.
      When precise math/equations matter, use `mcp__arxiv-latex__get_paper_section`.
-   - `external/` — reference codebases checked into the repo (project-
-     specific). Grep for function/class names mentioned in the issue;
-     sometimes a method is already implemented and we'd be duplicating
-     engineering work.
+   - `external/` — reference codebases checked into the repo (open-instruct,
+     agentic-backdoor, training-against-misalignment). Grep for function/class
+     names mentioned in the issue; sometimes a method is already implemented
+     and we'd be duplicating engineering work.
    - `docs/` — internal write-ups and research notes (e.g., `research_ideas.md`,
      literature digests). Often contain summaries of related work that didn't
-     make it into a clean-result issue.
+     make it into a clean-result body.
    - `mcp__arxiv__search_papers` / `mcp__arxiv__semantic_search` — only if the
      issue references a paper not yet in `.arxiv-papers/`, or if the internal
      literature pass turned up nothing relevant and external work is plausible.
@@ -100,9 +104,9 @@ After this pass, write a short internal note (NOT posted to the issue unless
 the user asks for it) of the form:
 
 > **Context resolved from project knowledge:**
-> - Baseline = clean-result #<N> (model X, metric Y, seed Z)
-> - Eval suite = `<path/to/eval.py>` (per `RESULTS.md` headline #3)
-> - Method delta vs parent #<M> = <one variable changed>
+> - Baseline = clean-result #75 (Qwen-2.5-7B-Instruct, ARC-C 0.78, seed 42)
+> - Eval suite = `eval/betley_alignment.py` (per `RESULTS.md` headline #3)
+> - Method delta vs parent #137 = swap LoRA r=16 → r=64 (only difference)
 >
 > **Remaining blocking ambiguities:**
 > 1. ...
@@ -111,7 +115,8 @@ the user asks for it) of the form:
 Use this note to:
 - **Cut** any clarifying question whose answer is already in project knowledge.
 - **Sharpen** the remaining questions by quoting the relevant prior result
-  (e.g., "Issue #<N> used metric X — same metric here, or different?").
+  (e.g., "Issue #75 used Claude-judge alignment 0–100 — same metric here, or
+  different?").
 - **Inform** the adversarial planner if/when control passes to Step 2 — the
   planner inherits this same context (cite issue / paper numbers in the plan).
 
@@ -119,6 +124,8 @@ If the context-gathering pass resolves all blocking ambiguities, post the
 `<!-- epm:clarify v1 -->` "All clear" comment and include a 3-5 bullet
 **Context resolved** section listing the issues / commits / papers consulted,
 so downstream agents and reviewers can audit the inheritance chain.
+
+After Step 0, proceed directly to the type-specific clarifier sections below.
 
 ---
 
@@ -128,7 +135,7 @@ Check that the issue body answers each question. If not, ask it.
 
 ### Hypothesis + prediction
 - What specific hypothesis does this test? State it as an `if X then Y`.
-- What is the quantitative prediction? (e.g., "metric Y drops by ≥30% under
+- What is the quantitative prediction? (e.g., "EM coupling drops by ≥30% under
   intervention A vs. baseline")
 - What result would FALSIFY the hypothesis? (kill criterion)
 
@@ -139,34 +146,34 @@ Check that the issue body answers each question. If not, ask it.
 
 ### Data
 - What dataset? Exact name, version, size.
-- Do we need to regenerate data, or is it cached in the dataset store?
+- Do we need to regenerate data, or is it cached on HF Hub?
 - What preprocessing?
 
 ### Model
-- Base model? Checkpoint? (artifact-store path or hub identifier)
+- Base model? Checkpoint? (HF path or WandB artifact)
 - Full finetune / LoRA / DPO / SFT?
 
 ### Training details (if training involved)
 - Learning rate, schedule, batch size, epochs, seq length.
-- Precision, DeepSpeed stage, adapter config if applicable.
+- Precision, DeepSpeed stage, LoRA config if applicable.
 - How many seeds? (Single-seed experiments get flagged by reviewer — consider ≥3
   if the claim is headline-level.)
 
 ### Eval
-- Which eval suite?
-- Which metric?
+- Which eval suite? (ARC-C / MMLU / alignment judge / custom)
+- Which metric? (accuracy / Claude-judge alignment 0-100 / StrongREJECT / etc.)
 - How many samples per question for stochastic evals?
-- Statistical test? (the project reports p-values + N only — no effect sizes
-  or named tests in prose.)
+- Statistical test? (paired t-test, bootstrap CI, Bonferroni correction if
+  multiple comparisons)
 
 ### Compute
-- Target compute spec? Tie to the parallelism analysis in the plan's §9.
+- Target pod? Pod1-5 have different GPU counts — which is appropriate?
 - GPU-hour estimate? (informs compute label: small <5h, medium 5-20h, large >20h)
 - Wall-time estimate?
 
 ### Upload + cleanup
-- Results-store project name?
-- Artifact-store repo for model upload?
+- WandB project name? (default: `your-project`)
+- HF Hub repo for model upload? (default: `your-hf-username/your-project`)
 - Any local artifacts to keep after upload, or clean all?
 
 ---
@@ -205,20 +212,26 @@ Check that the issue body answers each question. If not, ask it.
 
 ---
 
-## For `type:analysis` issues (re-analysis of existing results)
+### When a `type:infra` body lists multiple independent fixes
 
-### Source data
-- Which `eval_results/` directory or results-store run(s)?
-- Git commit hash of the original experiment?
+A single `type:infra` issue can intentionally list N independent items —
+workflow gripes, doc fixes, small refactors, batched analyses of existing
+results. **Do NOT ask the user to split it into separate issues.**
 
-### New claim
-- What new claim are we trying to support?
-- Is this within-scope of the original experiment, or does it require new data?
-  (If new data, re-classify as `type:experiment`.)
+Apply the `type:infra` clarifier rules per-item. For each numbered item,
+ask: is it concrete enough to plan a fix in 1-3 commits? Flag any vague
+items with scoped questions:
 
-### Methodology
-- What statistical test / aggregation method / plot style?
-- Are we re-using the original eval script or a new one?
+> 1. Item 1 ("Improve pod tracking"): which symptom — listing, health-check,
+>    lifecycle drift, or something else?
+> 3. Item 3 ("/issue resumability"): which step is currently non-resumable?
+
+If ≥1 item is vague, stay at `status:proposed` until the user sharpens it.
+
+For re-analysis items (working with `eval_results/` JSONs without running
+new training), additionally ask: which directory / WandB run, what new
+claim, which statistical test / aggregation. If the work needs new data,
+the item should be re-classified as `type:experiment`.
 
 ---
 
@@ -234,8 +247,8 @@ Check that the issue body answers each question. If not, ask it.
 
 ### Deliverable
 - TL;DR length? (1-paragraph / 1-page / formal write-up)
-- Where does the deliverable go? (clean-result GitHub issue / source-issue
-  comment / `docs/` / nowhere, just context?)
+- Where does the deliverable go? (clean-result body / comment /
+  `docs/` / nowhere, just context?)
 
 ---
 

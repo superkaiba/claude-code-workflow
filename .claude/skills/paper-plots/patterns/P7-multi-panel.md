@@ -1,7 +1,7 @@
 # P7 — Multi-Panel Small Multiples
 
 **Use when:** The same chart type (P1/P2/P3) repeated across a faceting
-variable (e.g. per-aim, per-model-size). Small multiples let the reader do
+variable (e.g. per-topic, per-model-size). Small multiples let the reader do
 the comparison directly.
 
 **Do NOT use when:**
@@ -15,20 +15,22 @@ the comparison directly.
 import matplotlib.pyplot as plt
 import numpy as np
 
-from <your_project>.analysis.paper_plots import (
+from research_workflow.analysis.paper_plots import (
     add_direction_arrow,
     paper_palette,
     savefig_paper,
     set_paper_style,
 )
 
-set_paper_style("generic")
+# "blog" = clean-result + slide register (default). Use "generic" for
+# wider paper-style multi-panels (6.0 x 4.0).
+set_paper_style("blog", font_scale=0.95)
 
-conditions = ["baseline", "treatment_a", "treatment_b", "treatment_c"]
-facets = ["Facet 1", "Facet 2", "Facet 3", "Facet 4"]
+conditions = ["baseline", "c1", "c6", "c7"]
+topics = ["geometry", "propagation", "axis-origins", "em-defense"]
 
 rng = np.random.RandomState(0)
-values = rng.rand(len(facets), len(conditions)) * 0.5 + 0.4
+values = rng.rand(len(topics), len(conditions)) * 0.5 + 0.4
 errs = np.full_like(values, 0.03)
 
 fig, axes = plt.subplots(
@@ -39,17 +41,17 @@ colors = paper_palette(len(conditions))
 
 for idx, ax in enumerate(axes.flat):
     ax.bar(conditions, values[idx], yerr=errs[idx], color=colors, capsize=3)
-    ax.set_title(facets[idx], fontsize=10)
+    ax.set_title(topics[idx], fontsize=10)
     ax.set_ylim(0, 1.05)
     if idx >= 2:
         plt.setp(ax.get_xticklabels(), rotation=15, ha="right")
 
 # Shared y-label + direction arrow, applied ONCE to the figure-level axes
 for ax in axes[:, 0]:
-    ax.set_ylabel("Metric")
+    ax.set_ylabel("Alignment rate")
     add_direction_arrow(ax, axis="y", direction="up")
 
-savefig_paper(fig, "summary/metric_by_facet_grid", dir="figures/")
+savefig_paper(fig, "summary/alignment_by_topic_grid", dir="figures/")
 plt.close(fig)
 ```
 

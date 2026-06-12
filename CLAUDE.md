@@ -1,216 +1,367 @@
 # CLAUDE.md
 
-> Top-level project instructions consumed by Claude Code. This file is the
-> generic template — fill in the project-specific TODOs at the bottom and
-> adjust the placeholders (results store, artifact store, compute target,
-> entrypoint scripts) to your stack.
-
 ## Critical Rules
 
-- **Ask before assuming.** If a task has multiple valid interpretations, ask. Don't guess requirements, data formats, or success criteria.
-- **Never take shortcuts.** Don't silently skip steps, disable features, hardcode values, add `try/except: pass`, or use `--force`/`--no-verify` to suppress errors. Diagnose the root cause.
-- **Every new experiment MUST go through the adversarial planner** (Planner → Critic → Consistency-Checker → Revise → User approval). No exceptions. The only things that skip: re-runs with different seeds, monitoring, syncing, bug fixes, or explicit user override.
-- **NEVER run experiments inline in conversation.** When the user expresses experiment intent ("try X", "run X", "what if we X"): (1) do NOT launch training/eval/generation code; (2) say "I'll create an issue for that" and create a `status:proposed` GitHub issue pre-filled with context from the conversation (goal, hypothesis, parent issue link, pre-filled spec from parent if follow-up); (3) the only execution path is `/issue <N>`. Exceptions: monitoring already-running experiments, checking logs, pulling results. Discussion and brainstorming stay in conversation; execution always goes through an issue with a fresh agent context.
-- **List assumptions before implementing.** For any factual claim about APIs, data formats, or hardware — state it, mark confidence, and verify if below high.
-- **Search before building.** Check package indexes, model hubs, and GitHub for existing solutions before writing code.
+- **`tasks/` is canonical workflow state.** `/issue <N>` = the task at `tasks/<status>/<N>/`. Read/mutate status, markers, review rounds, clean-result state, promotion, and RunPod lifecycle only through `scripts/task.py`. Status is the parent folder name. project dashboard (`https://dashboard.example.com`) is a read-mostly viewer; GitHub issues / project board are historical evidence only, never the control plane.
+- **Ask before assuming.** Multiple valid interpretations → ask. Don't guess requirements, data formats, or success criteria.
+- **Collaborate, don't transact.** Push back when something looks off; surface improvements. Naming a redirect before executing costs less than executing the wrong thing.
+- **Fail fast — never hide failures.** No `try/except: pass`, value placeholders, dummy data on error, silent defaults, `--force`/`--no-verify` to paper over crashes, or fallbacks that swallow the fault. The crash IS the signal — diagnose root causes.
+- **Every new experiment MUST go through `/adversarial-planner`** (Planner → Fact-Checker → Critic ensemble ∥ Consistency-Checker (concurrent, one spawn batch; findings unioned into a single Revise round) → Revise → User approval). Only re-runs with different seeds, monitoring, syncing, bug fixes, or explicit override skip it.
+- **Ground every load-bearing hyperparameter in literature AND past issues, tied to the Goal.** The planner picks the value best serving the Goal and records a `Source:` for each (arXiv id / paper table via the arXiv MCP, or a prior issue `#<M>` that validated it for this model+data) in plan §11. Never a bare library default. Ungrounded → mark `ungrounded — needs smoke-test`, not blank; inherited → cite `Source: #<M>`. Fact-checker (Phase 1.5) verifies each; Methodology critic REVISEs when a value is both not-CONFIRMED and plausibly outcome-changing. `kind: analysis|infra|batch|survey` exempt. Full set + enforcement: `planner.md` §11, `critic.md` Methodology lens.
+- **Measurement validity — the metric must measure the Goal's construct, on the distribution the behavior occurs.** Every `kind: experiment` plan states, per dependent variable: the **construct** it proxies, the **metric** actually computed, and whether the measurement is **on-distribution** (on-policy generation, the natural token position, a realistic prompt distribution). On-policy / behavioral measurement is the DEFAULT; an off-distribution / teacher-forced / fixed-context / single-position proxy is opt-in and requires EITHER a validation that the proxy tracks the construct OR an explicit argument it still answers the Goal ("cheaper / one forward pass" alone is NOT sufficient). A proxy saturated at a floor/ceiling across (nearly) all conditions is presumed uninformative — rank-shuffles among saturated values are not findings, and a proxy is never narrated as the construct without validation. `kind: analysis|infra|batch|survey` exempt. Enforcement: `planner.md` §6, `critic.md` Statistics & Measurement lens, `analyzer.md`, `interpretation-critic.md` Lens 1. Marker-specific recipe, the marker-dynamics-vs-cross-condition caveat, and the #432→#456 incident: `.claude/rules/marker-leakage-measurement.md`.
+- **Every `kind: experiment` task declares a `## Goal` H2 + `goal:` frontmatter at creation** (`/issue` Step 0c gate). The Goal is the canonical target every downstream subagent reads. Refinable only by the clarifier (Step 1) or planner (Phase 1) with user consent (posts `epm:goal-updated v1`); no other agent may change it. `kind: analysis|infra|batch|survey` exempt.
+- **List assumptions before implementing.** Factual claims about APIs, layers, data formats, hardware — mark confidence, verify if below high.
+- **Search before building.** Check PyPI, HuggingFace, GitHub first.
+- **Reuse existing experiment code as much as possible.** New experiments inherit the existing training scripts, eval functions, data pipelines, configs, checkpoints, and the parent/sibling issue's methodology by default — don't reinvent what's already built. The planner identifies what's reusable and flags what's genuinely new vs reused (`planner.md` steps 1/5, §"Plan Quality"); write new code only for the single variable the experiment actually changes.
+- **Reuse existing trained artifacts when fit-for-purpose — never reuse a wrong one.** The same default extends to TRAINED ARTIFACTS already on HF: LoRA adapters / merged checkpoints (`your-hf-username/your-project`), training-mix JSONLs + raw-completion buckets (`your-hf-username/your-project-data`), and `eval_results/` JSONs from prior tasks. Before retraining or regenerating, the planner searches what already exists and reuses it when it fits the new Goal (canonical worked example: #532 reuses #474's loc-arm epoch-1 marker adapters instead of retraining 16 sources). Reuse is conditional on a POSITIVE fitness check — silently reusing a wrong / stale / saturated artifact confounds the result and is WORSE than retraining. The planner verifies, before recording an artifact as reused in §10/§11: (a) same base model + same training recipe / hyperparameters the new question requires (marker token id, lr, epochs, rank, contrastive-vs-positives arm, etc. — adapter-architecture values grounded on the artifact's own `adapter_config.json` via `hf_hub_download`, never the parent body's Reproducibility row alone; on disagreement the config wins and the body row gets record-corrected — incident #545); (b) the artifact is in a VALID measurement regime for the new question — for marker work specifically, NOT saturated (source `log P − base ∈ [5,12]` nat, bystanders below the argmax ceiling per `.claude/rules/marker-training-recipe.md`); (c) the required conditions / cells the new design needs are actually present; (d) reuse does NOT break single-variable-change (consistency-checker) or measurement validity; (e) the artifact actually resolves on HF via `huggingface_hub.list_repo_files` (NOT the `hf` CLI — see `.claude/rules/upload-policy.md`); (f) content identity across copies — when the verified copy is a local untracked file but execution fetches the artifact's HF mirror, the plan names the pin mechanism (`EXPECTED_SHA256` table asserted at prefetch, or an issue-owned `issue<N>_<slug>/inputs/` snapshot consumed instead of the parent's shared mirror) — resolution alone does not prove the mirror matches (`.claude/rules/gotchas.md` "HF mirror ≠ local-verified copy", incident #600); (g) for reused LoRA adapters, the application-scaling regime — read `adapter_config.json` (`use_rslora` / `lora_alpha` / `r`) and reproduce the parent's committed numbers via a 1-adapter apply-and-read parity probe on the CURRENT stack, pinning the read gauge in plan §4 (a recipe-identical parent committed at classic `α/r` is an unconditional repeater at the faithful `α/√r` current vLLM+PEFT honor for `use_rslora: true`; incident #601). Any check that fails → retrain / regenerate, and say why in the plan. Enforcement is a 3-stage defense: `planner.md` step 5 (self-attested fitness check) → `consistency-checker` (independent reuse-smuggled-variable diff vs the parent recipe) → `critic.md` Methodology lens item 9 (REVISE); the reuse provenance is then carried into the clean-result `## Reproducibility` (`analyzer.md`) and audited by `clean-result-critic` Lens 5.
+- **State facts, not sources — everywhere except `docs/mentor_updates/`.** Living docs (`docs/open_questions.md`, `docs/research_ideas.md`) AND task/issue bodies write the claim/idea directly — never "Dan said", "per the 2026-05-29 meeting", or any person/meeting attribution. Provenance lives only in the `#issue` evidence trailers and in `docs/mentor_updates/`. When integrating meeting feedback into issues or docs, carry the substance, drop the name. Keep the register plainly academic: no spatial/anatomical metaphors ("spine", "backbone", "hub-and-spoke", "scaffold") — name the mechanism directly.
+- **Use vLLM for generation.** Never sequential HF `model.generate()` for eval — vLLM batched `LLM.generate()` is 10-50x faster.
+- **`max_new_tokens` ≥ 2× longest trained completion** (default ≥ 2048) for marker / end-of-completion evals — truncation creates silent zeros (#260: 1050-token training + 512 cap → source-rate 0.00). Free-generation evals (alignment, capability) can stay at 512.
+- **Marker-leakage experiments:** default marker ` ※` (leading space, Qwen-2.5-7B token id 83399; NOT `[ZLT]`, NOT bare `※` id 63680 — assert `tokenizer.encode(MARKER_TEXT, add_special_tokens=False) == [83399]` before spawning, thread with `shlex.quote`). DV = on-policy `log P(marker)` at the END of the model's OWN response, reported trained − base (subsumes emission rate). **The DV stays marker-specific — NEVER swap in full-vocab KL-from-base at the slot to dodge anchor saturation:** KL measures total next-token-distribution change (EOS/punctuation reallocation), not marker mass, so it inflates a null into an effect (in #504 a bystander read 24 nats KL with zero marker emission). On saturation, keep the marker DV and back off to a less-trained anchor + bystander emission rate, and gate the anchor on bystander resolution, NOT on source emission (the source *should* saturate emission — it IS the implant). **Report the marker DV in ALL THREE spaces, every time** (analysis + per-cell tables + trajectory) — log-prob (PRIMARY, behavioral), logit incl. the EOS margin (SECONDARY, mechanistic), probability (sanity read): `log P(marker) = z_marker − logsumexp(z)`, so the `logsumexp`/`log Z` term compresses `log P` near the ceiling — a log-prob plateau/null at a high-base-prior or near-saturated cell can be a softmax artifact, NOT absence of effect. **Storage contract: every marker slot read persists FOUR floats per slot per model side (trained AND base, same forward pass) — `log P(marker)`, `z_marker`, `z_eos` (`<|im_end|>` id 151645), `logZ = logsumexp(z)`** — logits are UNRECOVERABLE from stored log-probs post-hoc, so capture in HF forward passes (vLLM returns post-softmax log-probs only; incident #530). Keep `log P(marker)` trained − base as the PRIMARY (behavioral) DV; ALSO report the trained − base marker *logit*, preferring the EOS margin `Δ(z_marker − z_eos)` (gauge-invariant — cancels common-mode logit shifts — and anchored to the emission threshold: the marker fires when it overtakes EOS at the slot); `Δz_marker = W_U[marker]·Δh` is non-saturating, gauge-free ONLY because LoRA does NOT touch the unembedding `W_U` [assert `target_modules` exclude `lm_head`/`embed_tokens` and `modules_to_save` is empty; the logit readout is invalid otherwise], and marker-specific so NOT the banned full-vocab KL — the SECONDARY (mechanistic) readout from the SAME forward pass. Off saturation `Δlog Z ≈ 0` so `Δlog P ≈ Δz_marker` (agreement ⇒ the log-prob result is faithful); where they DIVERGE the cell is saturated and `log P` understates the real push — read the logit (or the censored/Tobit model) there, never raw `log P`; space disagreement is the saturation signature, a finding, not an error. (Probability space `ΔP = P_base·(e^{Δlog P}−1)` over-weights high-prior contexts; behavioral sanity read only — "the prior affects leakage" is a probability-space claim, near-vacuous for the log-prob gain off-saturation.) Log the log-prob + emission *trajectory* over training steps per condition in WandB. Full recipe, token threading, dynamics, and the #432→#456 incident: `.claude/rules/marker-leakage-measurement.md`. **Marker TRAINING recipe** (the over/under-training dial, always-marker-only loss, why fixing epochs fails, and the deterministic log-prob band-stop — stop when source `log P − base ∈ [5,12]` nat, gated on bystander resolution not source emission — auto-applied via the marker-gated `MarkerBandStopCallback` default in `train_lora`, so marker runs inherit it with no per-script wiring; set `marker_band_stop=False` only to deliberately saturate): `.claude/rules/marker-training-recipe.md` (evidence + per-task index: `docs/marker_training_recipe.md`). **Drafting or creating a marker / behavior-implant experiment task body — even a bare `proposed` task, before any training code is touched — counts as planning the recipe: READ `.claude/rules/marker-training-recipe.md` + `marker-leakage-measurement.md` + `contrastive-negatives.md` IN FULL before grounding any hyperparameter or root-causing a saturation/floor result.** This always-on bullet is a pointer, not the recipe — it omits that the marker-only LR is the over/under dial (lr ≥1e-4 → unconditional ` ※`-repeater, source AND bystander saturate; the only demonstrated clean window is lr ≤5e-6, strength bought through training STEPS, NOT LoRA rank), so a body grounded on this summary alone mis-frames the lever (incident #530, 2026-06-08: a de-saturation re-run body first blamed steps/rank instead of LR). The on-demand load that fires when you touch training code is too late for the task-drafting step that seeds the planner.
+- **ALWAYS use contrastive negatives for behavior implantation.** Any experiment that implants a behavior (marker, fact, refusal, trait) into a source persona MUST interleave contrastive negative rows — same questions, under *other* personas (always including the default assistant), that omit the target (marker-less rows train EOS at the slot under marker-only loss; fact rows emit a competing wrong-fact / refusal-pool string). Positive-only training leaks the behavior *uniformly* to every persona + the default context — the localization/selectivity gradient exists only in the contrastive regime (#18, #207). Default ~1:1 positives-to-total-negatives across ≥2-4 close negative personas; measure leakage on-policy; do NOT overclaim selectivity (the #383 recipe may be an X-vs-(X−Y) artifact) and avoid saturated anchors (#448). Exempt only when the single manipulated variable IS contrastive-vs-non-contrastive (non-contrastive = the deliberate control) or a strict single-variable replication of a positive-only parent (then flag the no-negatives regime as a clean-result scope caveat). Full recipe + composition + caveats + citations: `.claude/rules/contrastive-negatives.md`. The planner (§4 Design) includes the negative set by default and the critic (Methodology lens) REVISEs a behavior-implantation plan that omits it without an exemption.
+- **Replicating a published finding → match the paper's data + recipe FIRST.** When the Goal is to replicate a paper's result or test whether it holds on our model, the FIRST run reproduces the paper's actual data source, training recipe, and hyperparameters as faithfully as the project allows — same corpus construction (the paper's real dataset, not a project-house synthetic substitute), same SFT-vs-contrastive shape, same LoRA rank / epochs / lr / checkpoint-selection, same dependent variable AND the same manipulation check the paper used to confirm the intervention took. Change ONLY the one variable the replication is deliberately testing (typically the base model). Do NOT silently swap in the project's house rig (contrastive Sonnet-written corpus, default r=32/α=64, 3 epochs, etc.) and then read a null as "the finding doesn't replicate" — a recipe mismatch confounds the null and leaves model-size / corpus-shape / training-rig all un-disentangled (incident #496: a contrastive Sonnet-warmth rig produced a sub-threshold warmth→sycophancy null where the paper used ShareGPT-rewrite plain SFT, AND skipped the paper's warmth manipulation check, so "warmth doesn't leak" was indistinguishable from "warmth never implanted"). Any deviation forced by project constraints (judge model, GPU budget, model size) is named explicitly in plan §-assumptions and carried into the clean-result as a scope caveat. A faithful replication of a positive-only paper is the named contrastive-negatives exemption (b) — do NOT bolt on contrastive negatives the paper didn't use. Pull the recipe from the paper itself (arXiv MCP), never from a secondhand summary, and verify the citation (author/venue) against the source. Enforcement: `planner.md` (replication-fidelity check), `critic.md` Methodology lens.
+- **Design experiments on the most realistic data available — strict preference order.** Every `kind: experiment` plan picks its training/eval/probe data from this hierarchy and justifies the choice in §-assumptions: (1) **Real-world data** — actual production logs, user queries, naturally occurring text/code/conversations from the domain the claim targets. Always first choice when accessible. (2) **Established dataset / benchmark** — a published corpus the field already uses for this construct (ShareGPT, UltraChat, MMLU, TruthfulQA, Anthropic's HH-RLHF, the paper's own released data, etc.); cite it by name + canonical source. (3) **DIVERSE LLM-generated synthetic data** — only when 1+2 are genuinely unavailable, and only with deliberate variation across lengths (short/medium/long), structures (single-turn/multi-turn, code/prose/dialogue, formal/casual), framings, topics, and surface forms. A flat 1000-row corpus of "Q: <template>\nA: <template>" pairs is NOT diverse synthetic — it is programmatic generation with an LLM in the loop, and inherits all the brittleness of (4). (4) **Programmatically generated data** — templated / regex-built / code-emitted rows are the LAST resort and require an explicit, recorded argument for why no other source works AND why the templated structure cannot bias the result (e.g. when the construct under test IS a controlled template, like a token-level marker injected into a fixed slot for a measurement-validity probe). The default presumption is that programmatic synthetic data confounds every behavioral claim by collapsing the distribution the trained behavior generalizes to. Enforcement: `planner.md` §4 Design names the source + tier, `critic.md` Methodology lens REVISEs any tier-3 choice without a justified absence of tier-1/2 and any tier-4 choice without an explicit confound argument; carry the data-source tier into the clean-result as a scope caveat.
+- **Never form `tasks/...` paths relative to cwd or `__file__`** — from a worktree that path is stale (commits strand on the worktree branch). Use `scripts/task.py find <N>` / `tasks-dir`, or `from research_workflow.task_workflow import tasks_dir, registry_path, repo_root`. The resolver branch-guards to `main`. Enforced by `tests/test_no_direct_task_path_construction.py`.
+- **NEVER `git checkout` / `git switch` a branch in the repo-root tree — keep it on `main`; do all branch work in a worktree.** The repo root is the SHARED canonical commit target for `scripts/task.py` + every concurrent VM session (all assume `HEAD==main`); switching the branch there hijacks it for concurrent committers and lets a concurrent `git add && git commit` sweep this session's uncommitted edits onto the wrong branch. For any feature/infra branch: `bash scripts/new_worktree.sh .claude/worktrees/<name> <branch>` (sparse checkout by default — excludes `eval_results/`/`external/`/`ood_eval_results/`; `--full` only with a stated reason), work + commit there, then merge to `main` from repo root. Enforced by the `guard_repo_root_branch.sh` PreToolUse hook (`.claude/settings.json`). **Post-commit landing check:** after committing any mid-session edit to `CLAUDE.md` / another workflow-surface file, run `git log -1 --oneline -- <file>` on `main` to confirm it landed on `main` and wasn't stranded on a concurrent feature branch by a parallel merge (the hook prevents the branch-switch cause, not a concurrent merge). (Incidents 2026-06-01: a repo-root `git checkout -b` bundled another session's edits onto a feature branch; and a committed marker-leakage rule fix stranded on `fix/sweep-ckpt-persist`, leaving the wrong version live on `main`.)
+- **Pod-side code NEVER shells out to `scripts/task.py` for ANY subcommand.** Pods run on `issue-<N>` branches; `task.py` branch-guards to `main` and refuses on non-`main` HEAD. Pod-side dispatchers post markers ONLY through the VM orchestrator: (a) pod writes a sentinel file (`/workspace/logs/issue-<N>-*.json`) that `poll_pipeline.py` observes; (b) pod prints a structured JSON line the poller parses; (c) pod uses HF Hub / a file-presence signal. If the pod must read prior markers, the orchestrator passes them in as a CLI arg. Enforced by `tests/test_no_pod_side_task_py_shellout.py`.
+- **Workflow-fix-on-bug protocol.** When any agent hits a bug from a gap in the workflow surface itself (`.claude/agents/*.md`, `.claude/skills/**/SKILL.md`, `.claude/rules/*.md`, `.claude/workflow.yaml`, `.claude/settings.json`, `CLAUDE.md`, or workflow-helper scripts) — NOT experiment/task-state bugs — emit a `<!-- workflow-fix-candidate v1 -->` block in your return text. The orchestrator AUTO-SPAWNS `workflow-improver` in the background by DEFAULT for any in-scope, non-architectural gap AT ANY CONFIDENCE (standing directive 2026-06-11: low-confidence / "deferred" follow-ups are RUN, not parked for a future pass — the improver makes the deliberate call with the file open and may deflect with a reasoned no-change report; its independent code-reviewer is the second check) — it does NOT park it for the user's greenlight; greenlight is reserved only for genuinely architectural / public-contract changes (rename a status enum, change a marker schema or task.py subcommand, remove a subsystem). Only a follow-up too vague to name a target file + concrete change is logged without dispatch (nothing to run). **Surfaced-prose follow-ups count too** — a "Follow-ups (orchestrator should consider)" section, a "Related concerns" bullet, or any concrete suggestion to change a workflow-surface file in an agent's report prose triggers the SAME auto-spawn default as a formal candidate block; the orchestrator synthesizes an equivalent candidate from the prose and dispatches. Surfacing such follow-ups to the user as chat notes "for greenlight" is now the anti-pattern. At most one formal candidate block per invocation; prose follow-ups uncapped — list every concrete in-scope concern. Subagents NEVER spawn `workflow-improver` themselves. Non-blocking side channel, NOT an `AskUserQuestion`. **Workflow-surface edits are committed + merged + pushed AUTOMATICALLY as they are made — no approval gate** (standing rule 2026-06-02): workflow-improver commits its verified edits in its worktree and the orchestrator merges to `main` + pushes on its return; an orchestrator's own direct workflow edit is committed (by explicit path, never `git add -A`) + pushed immediately. Normal push to `main` only — force-push stays a user-ask. Full protocol: `.claude/rules/workflow-fix-on-bug.md`.
 
-- **Auto-continuation policy.** When orchestrating a multi-step workflow
-  (`/issue`, `/adversarial-planner`, etc.) the agent MUST auto-continue
-  through every step EXCEPT the explicit user-gated states. The only
-  legitimate user-input gates in `/issue` are:
-  1. Step 0b (1) — issue body empty (cannot guess primary input).
-  2. Step 0b (2) — `type:*` label missing (wrong guess corrupts Done column).
-  3. Step 1 — clarifier blocking ambiguities (`status:proposed`).
-  4. Step 2c — plan approval (`status:plan-pending`).
-  5. Step 10c — compute teardown (irreversible).
-  6. Step 10d — worktree merge prompt (irreversible).
+### Routing experiment intent
 
-  Outside these six gates, NEVER ask "should I continue with the pipeline"
-  or similar. When auto-continuing past a non-obvious decision, STATE the
-  assumption made (one line, prefixed `Assumption:`) so the user can
-  reverse it. Use `AskUserQuestion` only at the six gates above.
-  Reviewers reject PRs that introduce additional pause points.
+- **Pure capture** ("save idea: X") — create `status='proposed'` task; no execution.
+- **NEW direction** (substantially different question — "try X", "run X", "what if we X") — NEVER inline. Create `status='proposed'` task; only execution path is `/issue <N>`.
+- **Follow-up** (the requested work answers the SAME question as an existing issue #N — regardless of whether the user says "followup") — NEVER loose ad-hoc execution from the chat session. Post `epm:followup-scope v1` on #N (`source: user-chat`, with a `followup_label`), then re-invoke `/issue N` — the same-issue follow-up loop executes it ON #N (SKILL.md Step 9b § Same-issue follow-up loop) and re-parks it at `awaiting_promotion`. While executing, the loop HOLDS the task at status `followups_running` with the `followup-auto` (proposer-initiated) or `followup-manual` (user-initiated) tag — the intermediate pipeline statuses are not applied. Artifacts land under `eval_results/issue_<N>/<followup_label>/`. A substantially different question is a NEW direction (child task via `task.py new --parent <N>`), not a follow-up. **Pod-safety auto-stop exemption:** if the follow-up provisions a pod on a terminal-status parent, the watcher infers a live follow-up from a fresh `epm:run-launched` newer than the latest done-transition (`epm:promoted` / `epm:status-changed`) and SKIPS the auto-stop with a `followup-skip` marker; `task.py add-tag <N> keep-running` is no longer required, but is still an explicit override that takes precedence over the inferred predicate (incident #477, 2026-06-10).
+- **Campaign** (`kind: campaign`) — question-level runner pinned to ONE `docs/open_questions.md` anchor. Only execution path: `/campaign <N>` in a DEDICATED session spawned via `spawn_session.py spawn-campaign --issue <N>` (refuses unless the user reviewed the `## Campaign Brief` and ran `task.py set-status <N> approved` — workflow.yaml § gates.campaign_brief_approval). Children are ordinary `kind: experiment` tasks executed via `/issue <child> --auto` with the full planner/critic stack; the campaign ingests only critic-gated clean-results, holds budget/limits in `artifacts/campaign-state.json` (GPU-hours, never dollars), and proposes — never applies — open-questions diffs. NEVER run `/campaign <N>` in the PM session or a per-issue session.
+- **Always-inline** — monitoring, log-checking, pulling results, discussion, brainstorming. No task needed.
 
-- **STATE-TO-`status:blocked` criteria** (escape hatch to prevent
-  catastrophic auto-continuation). When the agent would `Assumption:`-past
-  ANY of the following, label `status:blocked` and EXIT instead:
-  1. The assumption would silently delete or overwrite user files OUTSIDE
-     the worktree.
-  2. The assumption changes a public API contract (label semantics, marker
-     schema, GitHub Actions secret name, project-board column name).
-  3. consistency-checker / code-reviewer / interpretation-critic / reviewer
-     returns BLOCKER or FAIL with `needs-user` flag (see "Subagent halt
-     conditions" below).
-  4. `failure_class: infra` respawn cap (3) hit.
+Routing is by QUESTION IDENTITY, not user phrasing: same question → same issue; substantially different question → new child task. The `question_relation: same | substantially-different` tag on follow-up proposals encodes the same split (`follow-up-proposer.md` § question_relation tag — criteria). Ambiguous? Ask one short question. **Record the originating prompt at creation:** when a task is created from a user chat request (capture / NEW direction / follow-up child), record the verbatim user prompt — `task.py new --origin-prompt "..."` or a `## Provenance` body section (worked example: #611); same-issue follow-up rounds already carry it in the `epm:followup-scope v1` note. The clean-result's `## Reproducibility` `**Context:**` row ships it forward (SPEC.md § `**Context:**` row; `verify_task_body.py` check 17). **Archiving:** `task.py set-status <N> archived` for duplicates / won't-fix / abandoned. `has_clean_result=true` is sticky across statuses.
 
-- **Subagent halt conditions** (verdicts that pause regardless of
-  auto-continuation):
+### Auto-continuation policy
 
-  | Subagent | Verdict | Action |
-  |---|---|---|
-  | consistency-checker | BLOCKER | Step 2c writes BLOCKER to plan body, awaits user reply |
-  | code-reviewer | FAIL | Bounces to implementer up to 3 rounds; on 4th FAIL, `status:blocked` |
-  | interpretation-critic | FATAL | Bounces to analyzer up to 3 rounds; on 4th FATAL, `status:blocked` |
-  | reviewer | FAIL with `needs-user` flag | Posts FAIL on source issue, awaits user |
-  | upload-verifier | FAIL | `status:uploading` does not advance to interpretation |
+Multi-step workflows (`/issue`, `/adversarial-planner`) MUST auto-continue except at explicit gates. Canonical enumeration: `.claude/workflow.yaml` § gates.
+
+*Inline `AskUserQuestion` gates (block within `/issue`):*
+1. Step 0b(1) — issue body empty.
+2. Step 0b(2) — task `kind` missing/contradictory.
+3. Step 1 — clarifier blocking ambiguities (`status:proposed`).
+4. Step 2c — plan approval (`status:plan_pending`).
+5. Step 0c — Goal gate (`kind: experiment` only): refuses to advance until `goal:` frontmatter + `## Goal` H2 present. On miss, ask, then `task.py set-goal <N> "..." --by user` + post `epm:goal-updated v1`.
+
+(The worktree merge is NO LONGER a gate — as of 2026-06-03 it is automatic: the worktree rebase-merges to `main` with no prompt at the terminal point — Step 9b for experiments at `awaiting_promotion`, Step 10d for code paths at `completed`. The worktree is kept, not removed. See SKILL.md Step 10d.)
+
+*Park-and-wait gate (skill EXITs; re-invoke after user acts):*
+6. `awaiting_promotion` — clean-result promotion. User runs `task.py promote <N> useful|not-useful`. **User-only:** no automation may flip `runs.classification`. (The worktree auto-merges to `main` the instant the task reaches this state — Step 9b — independent of promotion.)
+
+*Conditional gates:*
+7. Step 4b TDD — fires when plan body has `### TDD: yes`. Implementer posts `epm:proposed-tests v1`, EXITs awaiting `epm:approve-tests v1`.
+8. Goal-refinement (Step 1 clarifier OR Phase 1 planner) — surface the sharper Goal via `AskUserQuestion`; on agreement run `task.py set-goal <N> "..." --by clarifier|planner` + post `epm:goal-updated v1`. No other agent may propose Goal changes.
+
+Outside these gates, NEVER ask "should I continue". When auto-continuing past a non-obvious decision, STATE the assumption (`Assumption: ...`). Reviewers reject PRs that introduce additional pauses.
+
+**Halt-criterion contract.** Outside the 5 inline gates, NEVER use `AskUserQuestion`. If you genuinely need user input, post `epm:failure v1` with `failure_class: <code|infra|data>`, set `status:blocked`, exit. Enforced by `scripts/workflow_lint.py --check-asks` (pre-commit): every `AskUserQuestion` mention in `.claude/agents/**.md` or `.claude/skills/**/SKILL.md` must carry `<!-- gate: <dotted_key> -->` resolving to workflow.yaml, or cite the gate in the same paragraph.
+
+**STATE-TO-`blocked` criteria** (workflow.yaml § halt_criteria). **Continuing on your own is the default.** Pivots (re-invoke `/adversarial-planner` with pivot scope, drop a domain, swap a model, change the approach), retries, and memory-driven design changes are all autonomous. Block ONLY when:
+  1. **Factual question only the user knows** — priority, taste, scope, design preference between valid paths, where no memory/plan/codebase signal disambiguates. **Autonomous-mode carve-out (`EPM_AUTONOMOUS_SESSION=1`):** in `--auto` sessions the taste / scope / design-preference / "which valid path?" sub-cases of this criterion do NOT apply — there is no human to escalate to, so the session picks the option with max info-gain-per-GPU-hour toward the task `## Goal` (tie-break: lower-cost / safer / record-correcting), posts `Decision: <X>`, and continues. The only autonomous residue of #1 is a fact the user UNIQUELY holds (account credential, external decision the user already promised to make, fact only the user can supply) AND that is NOT itself a taste / scope / design call. Authoritative prose: `.claude/skills/issue/SKILL.md` § Autonomous session behavior.
+  2. **Outside-the-worktree state mutation** — security boundary, irreversible writes (deletion, force-push, credential changes — always ask).
+  3. **Public API contract change** — status enum, marker schema, task.py subcommand, agent file location.
+  4. **Step 10 completion-audit incomplete** — ORIGINAL task body has unaddressed numbered asks / acceptance criteria / deliverables.
+
+  Cap-3 on a subagent ensemble is NOT a block trigger — it triggers a strategy pivot. Block only after ~3 fundamentally different strategies have FAILed AND no further autonomous angle exists. **Autonomous mode: a debugging wall is a strategy-pivot, not a block** — re-invoke `/adversarial-planner` with explicit pivot scope, spawn `experiment-implementer` on a different angle, swap a model / pod intent / framing, or drop the offending domain (workflow.yaml § `pivot_criteria`). Block only after ~3 FUNDAMENTALLY different strategies have all FAILed AND no autonomous angle remains. **Autonomous mode: a self-defeating PLAN routes to `/adversarial-planner` re-plan, not to a recipe descope or a max-info-gain pick** — when a subagent reports the plan itself is the defect (internally contradictory success/kill criteria, jointly-unsatisfiable gate set, or an explicit "needs plan amendment / cannot pick a science direction" verdict), the autonomous response is `task.py set-status <N> planning` + re-invoke `/adversarial-planner` with explicit pivot scope naming the contradiction; do NOT descope a hyperparameter to dodge it, do NOT silently pick among the subagent's paper-over options as if it were a valid fork. Full rule: workflow.yaml § `pivot_criteria.plan_contradiction_replan` + `.claude/skills/issue/SKILL.md` § Autonomous session behavior. Closed regression: task #488 round 10 (2026-06-08). **Autonomous mode: never stop a pod to PARK or await a user** — `pod.py stop` is allowed only while work continues toward the Goal in the same session; "Pod-N stopped while awaiting user decision on …" is the banned regression closed 2026-06-07. **Autonomous mode: cost is gated ONLY at the Step 2c plan-approval GPU-hour cap, never mid-run** — no mid-run "this is getting expensive" pivot to user-park, consistent with `tests/test_no_dollar_budget_caps.py`. When in doubt, continue.
+
+**Push through bugs in recovery mode.** Once the user has approved the GOAL ("re-run cell X", "promote #N"), small surface-area bugs along the way (preflight failures, TP=2 vs TP=1, Ray timeouts, env-var omissions, transient infra hiccups) are mine to fix and retry without re-asking. State the bug + the fix in ONE sentence and proceed — no 3-option menus, no "want me to proceed?". Escalate only when (a) the fix changes experiment scope, (b) the fix is irreversible/high-cost (force-push, terminate-running-pod, credential change), (c) ≥3 fundamentally different fixes failed, or (d) the bug points to a real factual question only the user can answer. **When escalation IS warranted, frame exactly TWO paths, max** — `continue-as-planned` vs `pivot-to-<X>`, each with a one-line rationale + cost. No 4+ option menus. (The `gates.inline id=4 plan_approval` approve/revise/reject trio is grandfathered.) **This two-path escalation is INTERACTIVE-ONLY.** In an autonomous session (`EPM_AUTONOMOUS_SESSION=1`, spawned via `spawn_session.py spawn-issue --auto`) there is no human to escalate to: never present a choice menu / "want your call?" / two-path fork — pick the best option toward the task Goal (max info-gain-per-GPU-hour; tie-break to the lower-cost/safer/record-correcting action) and continue, stating `Decision: <X>`. Asking is itself the failure mode there. Full rule: `.claude/skills/issue/SKILL.md` § Autonomous session behavior.
+
+**Subagent halt conditions** (workflow.yaml § subagent_halt_conditions). A 4th-round ensemble FAIL → strategy pivot, not a block; block only when the pivot space itself is exhausted. Bare FAIL without an explicit `needs-user` flag is NEVER a block trigger.
+
+### Orchestrator vs subagent re-invocation
+
+Subagents have ONE turn. The harness re-invokes the ORCHESTRATOR on each bg `Bash` exit when called with `run_in_background=true`. Therefore:
+
+- Waits longer than ~5 min belong to the orchestrator's bg-Bash polling loop (`scripts/poll_pipeline.py`), NOT subagent sleep-chains.
+- Subagents are for bounded, in-context work: launch+confirm, write+commit, check+report. `experimenter` is canonical: launches and exits within 60s; orchestrator polls.
+- **End the turn when bg work is in flight.** Don't sleep-poll or block-wait. Anti-pattern: launching N parallel subagents and sequentially `TaskOutput`-blocking each — serializes work the harness wants parallel and loses notifications.
+
+### Codex ensemble review
+
+Four review steps (`critic`, `code-reviewer`, `interpretation-critic`, `clean-result-critic`) run Claude + Codex twin (gpt-5.5 via `openai/codex-plugin-cc`) in parallel. Ensembling is **all rounds** for `code-reviewer` and `critic`, but **round 1 only** for `interpretation-critic` and `clean-result-critic` (rounds 2-3 Claude-only). PASS+PASS → advance. FAIL+FAIL overlapping → bounce. FAIL+FAIL disjoint → union blockers (one round). PASS vs FAIL → spawn `reconciler` (Claude, fresh context, binding). **Mechanical-contract-only FAILs** (every blocker tagged `marker-shape` or `smoke-run-missing`, no substantive finding) are stripped by the orchestrator when it verifies the implementer marker is present + conforming — so a reviewer cycling cosmetic objections about present evidence never bounces/pivots (SKILL.md Step 5c-bis; reviewer-side defenses in `code-reviewer.md` Steps 0.5/0.6/0.7). Round cap 3 per reviewer; reconciler invocations don't count. **NOT doubled:** `upload-verifier`, `consistency-checker`. /adversarial-planner Phase 2 (`critic`) uses in-context reconciliation; the other 3 sites use marker mode. The retired `reviewer` step (deprecated 2026-05-13) folded its statistical-framing check into `clean-result-critic`. See `workflow.yaml § ensemble_review`.
+
+Codex dispatch (`scripts/codex_task.py`) is used ONLY for the 4 twin reviewer roles. Twin wrappers are prompt-composers only; the **orchestrator** dispatches the helper as bg Bash (the only pattern that delivers a real notification when Codex terminates):
+
+```bash
+Bash(run_in_background=true,
+  command="uv run python scripts/codex_task.py --issue <N> --effort <high|xhigh> \
+    --prompt-file /tmp/codex-prompt-issue-<N>.md --output-file /tmp/codex-output-issue-<N>.md")
+```
+
+Helper posts `epm:codex-task-spawned`, then `epm:codex-task-completed`/`epm:codex-task-failed`. On marker-post failure: retry once, then drop to `tasks/_orphaned_markers/`. Orchestrator posts the verdict marker after reading the output file.
+
+## Context hygiene
+
+- **`/compact` at ~30% remaining**, earlier if dense. Use `/clear` (alias `/new`) between unrelated tasks.
+- **2× rule.** If a multi-step prompt repeats in a session, propose a skill / hook / `CLAUDE.md` edit *before* the second pass.
+- **429 token-pacing.** The org-wide input-token cap climbs at each minute boundary, so pace input tokens, don't retry harder. (a) **Stagger ensemble spawns** across a few seconds so prompt-token bursts don't stack. (b) **Keep subagent prompts lean** — pass the PATH to the plan/brief, never inline the body or events.jsonl dumps. (c) **Never dump giant logs into tool output** — `grep -iE 'error|traceback|killed|OOM'` / `tail -50`, never `cat` a multi-MB log (it re-enters context next turn). On a 429: wait for the next minute boundary and retry the same call.
+- **Spurious usage-policy refusals.** This project's safety-research vocabulary (backdoor / trigger / implant / misalignment, raw EM completions) sometimes trips false-positive "violates our Usage Policy" API refusals — 18+ hits on 2026-06-09 killed an implementer's final report, an analyzer mid-run, and several Codex wrappers. Recovery (never park on a refusal): (a) check what durable writes the killed agent already made before re-dispatching; (b) retry ONCE with a rephrased brief that thins the trigger-dense wording; (c) if a thin wrapper refuses twice, the orchestrator composes the artifact itself; (d) agents ingesting raw harmful-content completions (EM evals, jailbreak data) read aggregate JSONs / judge labels and pull cherry-picked examples by grep + line offset — never page whole raw-completion files into context.
 
 ## After Every Experiment
 
-1. **Verify uploads + clean local artifacts:** per the Upload Policy table below — confirm eval results in your results store and checkpoints in your artifact store, then delete weights/merged dirs from the compute target.
-2. Save structured JSON to `eval_results/` and log to your results store (all metrics, not just headline).
-3. Generate plots (bar charts with error bars, pre/post comparisons) → `figures/`.
-4. The `analyzer` agent creates the clean-result GitHub issue directly (labeled `clean-results:draft`). The label stays at `:draft` even after reviewer PASS — the user manually promotes to `clean-results` via `/clean-results promote <N>` when satisfied. Body follows `.claude/skills/clean-results/template.md`. Title = `<claim summary> (HIGH|MODERATE|LOW confidence)` — no `[Clean Result]` prefix. Run the clean-result verifier (e.g. `uv run python scripts/verify_clean_result.py`) before posting; FAIL blocks posting.
+1. **Verify uploads + clean weights** per Upload Policy: eval JSONs + figures in git on the issue branch, raw completions on HF data repo, checkpoints on HF model repo, then delete safetensors/merged dirs from the pod.
+2. Save structured JSON to `eval_results/`; log all metrics to WandB.
+3. Generate plots (bar charts with error bars, pre/post) → `figures/`.
+4. The `analyzer` agent **promotes the task body IN PLACE** to a clean-result: snapshot prior body to `original-body.md` (`task.py set-body --snapshot`), then `set-title` + `set-clean-result`. Classification stays `pending` until the user runs `task.py promote <N> useful|not-useful`. Title: `<one-sentence claim> (HIGH|MODERATE|LOW confidence)` — no prefix. Run `verify_task_body.py --issue <N>` first; FAIL blocks.
 5. Update `RESULTS.md` and `docs/research_ideas.md`.
-6. **Check disk usage** on the compute target — if low, flag to the user and preview what can be freed.
+6. **Disk check:** `df -h /workspace` — below 100GB free, run `pod.py cleanup --all --dry-run`.
 7. **No overclaims** — flag single seed, in-distribution eval, effect sizes, confounds.
-8. **End-of-session check:** Run `git status` — if modified drafts, RESULTS.md, or eval_results JSON are uncommitted, commit before ending.
+8. **Verify planned conditions were actually tested.** If any planned cell/factor/condition silently failed, the clean-result body MUST: (a) name the missing condition in the TL;DR Motivation AND the relevant result H3's setup or read prose (under the 2-content-section spec there is no dedicated `### Methodology corrections` H3 — correction prose folds into the result H3); (b) revise the hypothesis denominator to match actual coverage across Motivation, every relevant result H3, and any figure / table caption; (c) omit the missing condition from figures OR label it `N/A — not tested` (never a misleading zero bar). Enforced by `verify_task_body.py` check 11b + `clean-result-critic` Lens 13.
+9. **Auto-run free-analysis, headline-affecting follow-ups inline before parking.** The analyzer (Step 6.5) and follow-up-proposer tag every follow-up with `cost_class: free-analysis | needs-gpu` and `headline_affecting: yes | no`. When a follow-up is BOTH `free-analysis` (re-runs analysis/plot code over existing eval JSONs — zero GPU, zero new training/eval/pod) AND `headline_affecting: yes`, the `/issue` orchestrator AUTO-RUNS it at Step 9a-ter (paired with `experiment-implementer` + `code-reviewer`, with the implementer constrained to ANALYSIS-ONLY edits — abort + reclassify as `needs-gpu` if new data turns out to be needed), re-spawns the analyzer to fold the new result into the parent clean-result body, then proceeds to the clean-result-critique gate. Fires in BOTH interactive and autonomous sessions. Capped at AT MOST ONE round per task (idempotent via `epm:free-analysis-followup-run v1`); the re-run never triggers another auto-run in the same task. Auto-continue, NOT a new `AskUserQuestion` gate. Orthogonal to the autonomous-only GPU-backed `auto_run: yes` routing at Step 9b, which routes by `question_relation`: same-question proposals loop ON the parent issue (same-issue follow-up loop, held at status `followups_running`), substantially-different ones are FILED as `proposed` children for manual triage — never auto-spawned as sessions; all automatic follow-up EXECUTION is same-issue. **Campaign exception (user-approved contract change, 2026-06-10):** inside an APPROVED `kind: campaign` task, the campaign session MAY auto-file AND auto-spawn substantially-different children (`task.py new --parent <N>` + `spawn-issue --auto`), bounded by the campaign budget/limits in `artifacts/campaign-state.json` — see `.claude/skills/campaign/SKILL.md`. Canonical worked example: task #514's matched-rate re-bootstrap, which flipped LOW → DETERMINATE with zero GPU.
+10. **Auto-generate a findings-blind methodology + hyperparameters reference and link it from the clean-result.** Every `kind: experiment` clean-result auto-gains a standalone reference at `docs/methodology/issue_<N>.md` describing only HOW the experiment was run — conditions, training recipe + hyperparameter table, evaluation recipe (DV + metrics), verbatim worked training/eval/output examples, and reproducibility pointers — with NO interpretation, NO confidence, NO findings, NO next-steps. Generated by the `methodology-writer` agent (fresh context, structurally findings-blind: never reads `## TL;DR`, `## Findings`, the confidence tag, or any `epm:interpretation` body), EARLY-SPAWNED in the background at the results-landed point (`/issue` Step 8 parallel spawn — safe because its inputs are final once results land; it runs concurrently with upload verification + the interpretation loop). The orchestrator commits the doc on the issue worktree branch as soon as the agent returns, then at the `/issue` Step 9a-quater LATE JOIN (after `clean-result-critic` PASS, before the `awaiting_promotion` park) runs a no-secrets pre-scan, publishes a SECRET (unlisted) gist mirror via `gh gist create` (fail-soft — a missing gist never blocks the step, the in-repo doc is the durable artifact), and links the doc from the body in TWO places — a one-line `**Methodology:**` pointer at the TOP of the body (immediately after the `<!-- clean-result-v2 -->` sentinel, before `## Human TL;DR`) and a `**Methodology reference:**` row in `## Reproducibility` — both linking the GitHub blob (SHA-pinned) and the gist. Fires in BOTH interactive and autonomous sessions identically; auto-continue, NOT a new `AskUserQuestion` gate. Idempotent via `epm:methodology-doc-generated v1`. Skipped for `kind: infra | batch | survey`; `kind: analysis` runs only when the task has a discernible training/eval methodology. Worked exemplars: tasks #489 and #514.
+11. **End-of-session:** `git status` — commit modified drafts/RESULTS.md/eval JSON before ending.
 
 ## Experiment Report Structure
 
-All experiment write-ups — analyzer drafts and clean-result GitHub issues — follow ONE unified template at **`.claude/skills/clean-results/template.md`**.
+Clean-result write-ups follow the **2-content-section nested-design (v2) markdown clean-result spec** (migrated 2026-W22, task #454; nested-TL;DR adopted forward-only after #454): three required H2 sections in order — **Human TL;DR / TL;DR / Reproducibility** — with `## TL;DR` opening **`### Motivation`** → **`### What I ran`** → **`### Findings`** (parent) with one **`#### <finding>`** H4 per result (each with one inline figure + cherry-picked raw-completion example + `<details>` dropdown + link to all raw); v2 bodies carry the `<!-- clean-result-v2 -->` sentinel right after the H1 title, and **confidence lives in the H1 title tag ONLY** (no body `Confidence: …` sentence). `## Reproducibility` absorbs the Parameters table and carries a `**Context:**` run-provenance row (created/run dates, follow-up lineage, verbatim originating prompt — SPEC.md § `**Context:**` row, verifier check 17, forward-only); the analyzer no longer emits a Confidence sentence in v2 bodies. Verified by `scripts/verify_task_body.py`; a stray `## Details` or `## Figure` H2 is a hard FAIL (forces clean migration). Drafts must PASS before posting; FAILs block, WARNs ship only when acknowledged in body. Legacy (pre-sentinel) bodies — the ~30 awaiting_promotion backlog — keep the prior shape and are NEVER newly hard-FAILed by the nested-shape or confidence-title-only rules.
 
-The template has two parts:
+> **The full spec lives in `.claude/skills/clean-results/SPEC.md`** — body shape, per-result H3 skeleton, figure-caption shape, voice + statistics discipline (including the `byte identical` ban), mechanical checks, and legacy-body handling. Adversarial enforcement is `clean-result-critic` (15 lenses; Lens 4 is merged into Lens 2 under the new spec, Lens 8 is title-only, Lens 14 is the binding-concerns audit, Lens 15 the contaminated/failed-data-gate-arm check) + `audit_clean_results_body_discipline.py`; single-experiment promotion is owned by `.claude/agents/analyzer.md`.
+>
+> **ALWAYS read `SPEC.md` before changing ANYTHING about the report structure** — this CLAUDE.md summary, `verify_task_body.py`, `analyzer.md`, or any `clean-result-critic` lens. SPEC.md is the source of truth; these surfaces must stay in sync, so start there and update it alongside any change. When the user corrects a draft, also follow SPEC.md's iteration-capture rule (log to `iterations.md`; generalize only if the rule is portable).
 
-- **TL;DR** — 4 H3 subsections in order: `Background`, `Methodology`, `Results`, `Next steps`. No more, no fewer.
-- **Detailed report** — `Source issues`, `Setup & hyper-parameters` (reproducibility card; opens with a short "why this experiment / why these parameters / alternatives considered" prose block — this absorbs the former Decision Log), results-store URL, `Sample outputs`, `Headline numbers` (with a "Standing caveats" bullet block after the table — absorbs the former `## Caveats` section), `Artifacts`.
+## Task Workflow API
 
-Key requirements:
+All task state read/written through `scripts/task.py` (CLI + importable `research_workflow.task_workflow`). Mutates `tasks/<status>/<id>/`; every mutation holds `flock` on `~/.task-workflow/lock` and commits once. No HTTP, no token.
 
-- The `### Results` subsection contains four things in order: (1) hero figure, (2) 1-2 sentences describing the figure with headline percentages + N inline, (3) a `**Main takeaways:**` bolded label followed by 2-5 bullets where each bolds the load-bearing claim + numbers and continues with the belief update in plain prose (do NOT use an explicit `*Updates me:*` label — see `.claude/skills/clean-results/SKILL.md`), (4) a single `**Confidence: HIGH | MODERATE | LOW** — <one sentence>` line naming the binding constraint (LOW/MODERATE) or the evidence that survives scrutiny (HIGH).
-- **Statistics: p-values and sample sizes only.** No effect sizes (Cohen's d, η², r-as-effect, Δ-framed-as-effect), no named statistical tests (paired t, Fisher, Mann-Whitney, bootstrap) in prose, no power analyses, no credence intervals as inline `value ± err`. Error bars on charts are allowed; discussing them in prose is not.
-- All figures go through the `paper-plots` skill + your project's plotting helpers (e.g. `<your-project>/analysis/paper_plots.py`).
-- Every draft MUST pass the clean-result verifier (e.g. `uv run python scripts/verify_clean_result.py <path>`) before posting.
+```
+tasks/
+  REGISTRY.json                 # id → current folder path
+  <status>/<id>/
+    body.md                     # YAML frontmatter + body
+    events.jsonl                # append-only progress markers
+    comments.jsonl              # mentor comments + Claude replies
+    plans/v{N}.md               # plan revisions; plan.md symlinks highest
+    artifacts/                  # figures, html
+    original-body.md            # snapshot before clean-result promotion
+```
 
-See `.claude/skills/clean-results/principles.md` for the research-communication rationale (Nanda, Perez, Chua, Hughes, Evans).
+Status = parent folder name. Status change = atomic `git mv` + `epm:status-changed`. Enum: `proposed planning plan_pending approved running verifying interpreting reviewing awaiting_promotion followups_running completed blocked archived` (`followups_running` = a same-issue follow-up round is executing, tag `followup-auto`|`followup-manual`; legacy: children in flight). Dashboard: `https://dashboard.example.com/tasks/<N>`.
 
-## Reproducibility Requirements (MANDATORY)
+```bash
+uv run python scripts/task.py view <N> [--json]
+uv run python scripts/task.py latest-marker <N>               # "where do I resume"
+uv run python scripts/task.py set-status <N> <status>
+uv run python scripts/task.py post-marker <N> epm:foo --note '...'
+uv run python scripts/task.py set-body <N> --file body.md --snapshot
+uv run python scripts/task.py set-title <N> "..."
+uv run python scripts/task.py set-clean-result <N>            # flips has_clean_result=true
+uv run python scripts/task.py add-tag <N> <tag>
+uv run python scripts/task.py list-by-status --status <s> [--json]
+uv run python scripts/task.py find <N>                        # absolute path
+uv run python scripts/task.py new --kind experiment --title "..." [--parent K] [--body-file ...]
+uv run python scripts/task.py new-plan-version <N> --file plan.md
+uv run python scripts/task.py promote <N> useful|not-useful   # awaiting_promotion → completed
+uv run python scripts/task.py audit                           # registry vs filesystem
+```
 
-Every experiment write-up MUST include a filled **Reproducibility Card** (all parameters to rerun from scratch — actual values, not "see config"). It lives at `## Setup & hyper-parameters` inside the Detailed report. That section MUST open with a short "why this experiment / why these parameters / alternatives considered" prose block so the rationale travels with the card. The clean-result validator flags empty-cell sentinels (`{{`, `TBD`, `see config`, `default`) as FAIL.
+**`cd "$(... task.py find <N>)"` moves you into the task folder, not repo root.** After that `cd`, a later `uv run python scripts/task.py ...` resolves `scripts/task.py` against the task folder and fails with `No such file or directory` (the path is relative to repo root). This applies to EVERY `scripts/...` invocation (`spawn_session.py`, `pod.py`, ...), not just `task.py`: invoke by absolute path (`uv run python "$REPO_ROOT/scripts/..."`) or `cd` back to repo root first. Same family: after `git worktree remove`, `cd` out of the removed directory before any further compound command (`getcwd` failures silently no-op git operations); and NEVER hand-build `tasks/<status>/<N>/...` paths in inline shell one-liners — status is unknowable from the orchestrator, so read markers via `task.py view <N> --json` / `latest-marker <N>` (two crashes today guessed `tasks/running/<N>/events.jsonl` while the task was elsewhere).
 
-## Compute / remote execution
+**Concurrent repo-root committers.** Many sessions commit to the shared repo root in parallel. Stage by explicit path only (never `git add -A`/`git add .`), retry once on an `index.lock` collision, and on a rejected push `git pull --rebase --autostash` once and re-push (plain `--rebase` predictably fails on the always-dirty shared root). Before batch-fixing parked task bodies, post a claim marker (`epm:progress` note naming the task IDs) so a parallel session doesn't double-fix the same bodies.
 
-> TODO: describe how experiments run in this project. The workflow assumes
-> there is *some* compute target — a local box, a managed cluster, an
-> ephemeral cloud pod, etc. Fill in the lifecycle commands you actually
-> use, the SSH / remote-exec mechanism, and any health-check entrypoints.
-> The `/issue` skill expects a way to provision (or attach to), launch,
-> monitor, and (optionally) tear down compute per issue.
+**Body size cap.** `events.jsonl` `note` is capped at 50,000 chars (`post-marker` raises on oversize). Write to `artifacts/`, post `epm:failure v1` (`failure_class: infra`, `reason: note_oversize`) referencing it, then `set-status <N> blocked`.
 
-Once filled in, document at minimum:
+## PM Session + Per-Experiment Sessions (Happy)
 
-- How to provision / attach to compute for issue `<N>`.
-- How to launch a long-running job (must survive the parent session — typically `nohup`).
-- How to tail logs and check process / GPU health.
-- How to push code to the target (the workflow assumes code edits happen on
-  the local VM and the target pulls — never edit on the target).
-- How to tear down compute when done. The `/issue` skill will prompt the
-  user before any irreversible teardown.
+Multiple parallel Claude Code sessions on the VM, all visible in [Happy](https://github.com/slopus/happy):
+
+- **One PM session** — primary interlocutor, pinned to repo root, loads `research-pm` via `/pm`. Owns queue triage, ranking, dispatching. Does NOT run experiments or write code.
+- **N per-experiment sessions** — one per active experiment, each runs `/issue <N>`. Spawned by PM on user go-ahead.
+- **Campaign sessions (third type)** — one per APPROVED `kind: campaign` task, each runs `/campaign <N>` (spawned via `spawn_session.py spawn-campaign --issue <N>`). A campaign session orchestrates its children by spawning ordinary per-issue sessions; it never executes experiments itself. Crash-recovered by the watcher's campaign pass (registry `~/.workflow-autonomous/campaign-<N>.json`).
+
+```bash
+uv run python scripts/spawn_session.py spawn-pm
+uv run python scripts/spawn_session.py spawn-issue --issue 137 --auto   # kicks off /issue 137 (autonomous, crash-recovered)
+uv run python scripts/spawn_session.py spawn-issue --issue 137          # EMPTY session — sits idle until a human types /issue 137
+uv run python scripts/spawn_session.py spawn-campaign --issue 590       # campaign session (/campaign 590; kind: campaign at status approved only)
+uv run python scripts/spawn_session.py list
+uv run python scripts/spawn_session.py stop --session-id <id>
+```
+
+**Kickoff rule — when the user asks to "spawn an instance to handle/run issue N" (or "start it as a happy instance"), ALWAYS pass `--auto` so the `/issue N` skill actually starts.** The bare `spawn-issue --issue N` (no prompt) opens an EMPTY session that sits idle forever until a human opens it on their phone and types `/issue N` — it does NOT kick off the workflow, and it skips crash-recovery + `list` issue-mapping registration. Only use the bare form when the user explicitly wants an empty session to drive by hand. `--auto` self-drives, auto-approves plans ≤100 GPU-h (parks above that + at `awaiting_promotion`), and arms the crash-recovery watcher. (`--initial-prompt "/issue N"` also boots the skill but skips the `--auto` registration, so prefer `--auto`.) If the user wants to review the plan before it runs, tell them to hop into the session before it provisions, or spawn the bare form and have them type `/issue N` themselves.
+
+Spawning POSTs to the local Happy daemon's control server at `127.0.0.1:<port>` (port from `~/.happy/daemon.state.json`); the new session inherits `$HOME` + QR-paired key and appears on the phone. **Auto-watching:** per-experiment sessions don't auto-wake on progress, so `/issue <N>` AUTO-ARMS a 20-min backstop cron firing the lightweight `/issue-tick <N>` (`CronCreate`, idempotent via `CronList`) at Step 0 for autonomous sessions (whole-lifecycle coverage from spawn onward) and re-arms at Step 6d.2 for interactive pod-launched runs, then tears down at terminal/gate-park state — no need to type `/loop` (that command stays the manual equivalent). PM session is event-driven. **Topology rule:** NEVER run `/issue <N>` in the PM session. Reference: `.claude/skills/pm/SKILL.md`, `.claude/agents/research-pm.md`.
+
+## Compute backends — multi-lane router (GCP FIRST; RunPod is opt-in)
+
+**Compute is NOT RunPod-only — GCP is in the workflow.** Every `/issue` launch routes through the unified backend router (`src/research_workflow/backends/` — `router.py`, `gcp.py`, `slurm.py`, `runpod.py`; CLI `scripts/dispatch_issue.py`; helper `issue_dispatch.dispatch_for_issue`), keyed on the task's `backend:` frontmatter:
+
+- **Absent/empty frontmatter → `auto`, standing default GCP FIRST:** `DEFAULT_AUTO_LANE_ORDER = ("gcp", "nibi", "fir", "mila")` — credits-backed GCP capacity is spent before the free SLURM lanes (override via `EPM_AUTO_LANE_ORDER`; `runpod` in the override raises loudly). GCP gets a single provision attempt per launch (per-day attempt cap, `GcpAttemptCapExceededError`); provisioning/capacity failures fall through to SLURM; a GCP WORKLOAD failure surfaces with NO fallback. **The auto chain NEVER calls RunPod** (real-money safety, pinned by `test_no_auto_runpod_path_under_any_failure`).
+- **`backend: runpod` explicit override** is the only path that spends RunPod money. Reserve it for the named residual gaps: 70B intents (no GCP machine-type mapping — fail-loud by design), interactive SSH-MCP mid-run orchestration (the experimenter launch pattern), runs longer than GCP's `--max-run-duration` (default 24h), or the SLURM venv-extras mismatch. **Do NOT pass `--backend runpod` out of habit — "the GCP lane is train.py-only" is STALE as of #588 (2026-06-10): every lane executes custom dispatch scripts via `--workload-cmd`.** When overriding, name the residual gap in the launch marker note.
+- **GCP mechanics:** project `your-gcp-project` (GFS credit pool, gcloud config `your-gcloud-config` threaded per-call via `--configuration=` — NEVER the personal default project), zone `us-central1` (A100-80 quota; `a2-ultragpu-1g` for `lora-7b`; `g2-standard-4` (1× L4) for `eval`/`debug` — full mapping `INTENT_TO_MACHINE` in `backends/gcp.py`), DLVM image, instances named `wf-issue-<N>`. Instances are EPHEMERAL BY DESIGN — `--instance-termination-action=DELETE` + `--max-run-duration` (default 24h) + EXIT-trap teardown — so an empty `gcloud compute instances list --configuration=your-gcloud-config` does NOT mean the lane is unused; read the `epm:backend-selected v1` markers (carry `chosen_kind`, `reason`, `gcp_attempts_today`) instead. A janitor sweeps stale `wf-issue-*` instances.
+- The dispatch helper persists the run handle to `.claude/cache/issue-<N>-handle.json` (the bg-Bash poller reads it back). Full contract: `.claude/skills/issue/SKILL.md` § Backend dispatch (slice-6 unified router) + `workflow.yaml § markers`.
+
+## Pods (Ephemeral Lifecycle + CLI + SSH)
+
+RunPod pods — used ONLY on the explicit `backend: runpod` lane (see Compute backends above) — are created on demand per experiment. **Lifecycle:** `provision` → run → upload artifacts → upload-verification PASS → **auto-terminate**. **Naming:** `pod-<N>` (canonical, April 2026 rename; the legacy `epm-issue-<N>` prefix is still recognized for in-flight pods but never used for fresh provisions — see `pod_lifecycle.py` `_MANAGED_PREFIXES` / `_is_managed_pod`). One pod per experiment; follow-ups provision a fresh pod. `/issue` Step 8 runs `pod.py terminate --issue <N> --yes`, posts `<!-- epm:pod-terminated v1 -->`, proceeds to `interpreting` (interp reads JSON from WandB/HF, not the pod). Skip only with the `keep-running` tag.
+
+### GPU intent → spec
+
+| Intent | Default GPU | Use for |
+|---|---|---|
+| `eval` | 1× H100 | vLLM batched eval, generation-only on ≤7B |
+| `lora-7b` | 1× H100 | LoRA fine-tune of ~7B |
+| `ft-7b` | 4× H100 | Full fine-tune ~7B (ZeRO-3) |
+| `inf-70b` | 8× H100 | TP=8 inference ~70B |
+| `ft-70b` | 8× H200 | Full fine-tune ~70B (HBM headroom) |
+| `debug` | 1× H100 | Smallest pod for debug |
+
+Override with `--gpu-type` / `--gpu-count`. `pod.py provision --list-intents` for the table.
+
+**CPU-only phases don't hold GPU pods.** Long (>~15-30 min) CPU-only analysis/scoring phases (bootstrap/permutation stats, eval-JSON aggregation, judge-API-only scoring, plotting) run off-pod on the VM against uploaded artifacts by default; pod-side execution needs a named pod-local data dependency (activations, per-step checkpoints), and plans sequence uploads so the pod stops/terminates BEFORE the CPU phase starts. Plan-time rule: `planner.md` §9, `critic.md` Methodology lens item 10.
+
+```bash
+# Lifecycle
+uv run python scripts/pod.py provision --issue 137 --intent lora-7b   # default 7-day TTL
+uv run python scripts/pod.py provision --issue 137 --gpu-type H200 --gpu-count 8
+uv run python scripts/pod.py stop --issue 137                          # pause; volume preserved (manual only)
+uv run python scripts/pod.py resume --issue 137                        # new IP/port → pods.conf, SSH/MCP regenerated
+uv run python scripts/pod.py terminate --issue 137 --yes               # destroy (volume gone); /issue Step 8 auto-runs
+uv run python scripts/pod.py list-ephemeral [--issue 137]              # live API queried every invocation
+# Config (single source of truth: scripts/pods.conf)
+uv run python scripts/pod.py config --list | --check | --sync
+uv run python scripts/pod.py config --update <name> --host X --port Y
+uv run python scripts/pod.py config --refresh-from-api [<name>]    # Pull live host/port from RunPod API → pods.conf → sync
+# Keys / bootstrap / health
+uv run python scripts/pod.py keys --push [<name>...] | --verify
+uv run python scripts/pod.py bootstrap <name>                          # normally auto from provision
+uv run python scripts/pod.py health [--quick | --fix | --json]
+# Sync / cleanup / audit
+uv run python scripts/pod.py sync code | env | data --pull|--push | results --all | models --list|--sweep
+uv run python scripts/pod.py cleanup <name> --dry-run | --all          # safe model removal; does NOT terminate
+uv run python scripts/pod.py audit-stale [--terminate-stale --yes] [--json]
+```
+
+**Authority split.** Live RunPod API is authoritative for state (existence, status, host, port, GPU, `created_at`). `scripts/pods_ephemeral.json` holds project metadata only; `scripts/pods.conf` is the SSH/MCP config source, auto-synced. `pod.py provision` / `pod.py resume` refresh `pods.conf` from the live API on success; `pod.py config --sync` propagates `pods.conf` OUTWARD to `~/.ssh/config` + `.claude/mcp.json`. The inverse direction — pulling live API host/port INTO `pods.conf` outside an explicit provision/resume call — is `pod.py config --refresh-from-api [<name>]`. Use it when a SUPPLY_CONSTRAINT-blocked resume eventually succeeds via a retry path that bypassed `_upsert_pods_conf`, or whenever an SSH polling loop is failing on a port the live API no longer reports. (Incident #488, 2026-06-09: a resume blocked on SUPPLY_CONSTRAINT brought the pod back at a new port outside the success path; `pods.conf` stayed at the pre-stop port and an autonomous SSH polling loop spun for 13+ hours at $32/hr.)
+
+**Crons.** Stale-pod audit 09:37 daily (auto-terminate EXITED >24h — EXEMPT when the owning task carries the `keep-running` tag, reported as `kept-exited` instead; also runs on `pod.py provision`). Stale-worktree sweep 09:47 daily (`worktree_audit.py --apply`) reaps idle auto-generated worktrees under `.claude/worktrees/` — removed only when not held by a live process, not an `issue-<N>` with a non-terminal status, older than a 6h grace window (tightened to 1h when the filesystem holding the worktrees is ≥90% full — disk-pressure mode, threshold via `EPM_WORKTREE_DISK_PRESSURE_PCT`; the audit always reports disk usage + per-worktree sizes), and with no uncommitted tracked changes. Human-named worktrees are never touched (`issue-<N>-<suffix>` follow-up worktrees ARE in sweep scope as of 2026-06-12, mapped to issue N for the status lookup). For done-and-merged (`completed`/`archived`/`awaiting_promotion` — the latter added 2026-06-12: the worktree auto-merged to main at the Step 9b transition and the reconcile pass auto-stops parked sessions; any real non-orphan holder still blocks) issue worktrees, `--apply` additionally remediates two false-keep classes (2026-06-10 disk-full incident): kills orphaned codex `app-server` holder pids (exact-pid, cmdline re-verified immediately before each signal; never when any real holder is present) and rescue-copies allowlisted runtime-noise dirt (agent memories, `pods.conf`, `pods_ephemeral.json`) to `.claude/cache/worktree-rescue-<date>/` BEFORE removal; dry-run only classifies, never kills or rescues. `codex_task.py` complements this by pinning every codex-companion dispatch to the main checkout root (`DISPATCH_ROOT`), so new codex workers never root themselves in a worktree. Autonomous-session watcher every 10 min (`3-59/10 * * * *`, `autonomous_session_watch.py`): crash-recovery respawn, pod-safety reconciliation, stalled-session detector, orphan-file sweep, and a session-vs-status reconcile pass — an issue-mapped session whose task is parked/terminal (`awaiting_promotion`/`completed`/`archived`) is AUTO-STOPPED after ≥2 consecutive checks once ALL hold: no live follow-up inferred from events.jsonl (latest `epm:run-launched`/`epm:followup-scope`/`epm:free-analysis-followup-run` OLDER than the latest done-transition `epm:promoted`/`epm:status-changed`/`epm:pod-terminated`/`epm:step-completed`), every non-watcher marker + self-report idle > ~2h (`EPM_SESSION_RECONCILE_IDLE_S`), no RUNNING `pod-<N>`, and no `keep-running` tag (auto-stop default per user request 2026-06-10 — "stop the happy sessions once they reach awaiting promotion" — superseding the same-day alert-only decision; `EPM_SESSION_RECONCILE_AUTOSTOP=0` reverts to alert-only); sessions of tasks at any other status (ACTIVE, `followups_running`, `blocked`), the PM session, and unmapped chat sessions are never touched. The watcher also runs a zombie-wrapper pass — a live project session whose process tree has carried NO inner Claude process for ≥2 consecutive checks AND ≥2h (`EPM_ZOMBIE_WRAPPER_GRACE_S`) is auto-stopped REGARDLESS of issue mapping (the 2026-06-11 class: 25 unmapped finished-issue sessions showed as "running" indefinitely); never touched: the PM session (registered via `spawn_session.py register-pm` / `spawn-pm` / the `/pm` bootstrap), non-project-cwd sessions, and issue-mapped sessions at active/`blocked`/`plan_pending` statuses; `EPM_ZOMBIE_WRAPPER_REAP=0` reverts to alert-only.
+
+### Hard requirements (baked into `runpod_api.py`)
+
+1. **Team scoping** — every GraphQL call sends `X-Team-Id: YOUR_RUNPOD_TEAM_ID` (without it the API silently returns zero pods; override via `RUNPOD_TEAM_ID`). Only `api.runpod.io/graphql` honours it.
+2. **SSH bring-up** — `create_pod` sends `startSsh: true` + exposes `22/tcp`. Do NOT apt-install openssh via `dockerArgs`.
+3. **Image pinning** — `runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04`.
+4. **Bootstrap on provision** — runs `bootstrap_pod.sh` (uv, repo clone, .env push, HF cache redirect, preflight). Skip with `--no-bootstrap`.
+
+### Remote pod access (SSH MCP)
+
+SSH MCP server (`mcp-ssh-manager`, user-level `~/.claude/mcp.json`; `pod.py config --sync` writes pod env vars there + fails loud if the `ssh` entry is missing). **Prefer SSH MCP over `Bash("ssh ...")`.** Load tools first (deferred): `ToolSearch("select:mcp__ssh__ssh_execute,mcp__ssh__ssh_list_servers,mcp__ssh__ssh_health_check")`. Tools: `ssh_execute`, `ssh_list_servers`, `ssh_upload`/`download`, `ssh_sync`, `ssh_health_check`, `ssh_service_status`, `ssh_process_manager`, `ssh_group_execute`, `ssh_tail` (server param = pod name). Still use Bash SSH for TTY / piped / one-off. RunPod IPs change on restart; `pod.py resume` auto-updates pods.conf + SSH + MCP config (then `/mcp`).
+
+### Pre-launch protocol (MANDATORY for experimenters)
+
+1. **Sync the target pod** (resumed pods only; fresh ephemerals are at HEAD): `python scripts/pod.py sync env pod-<N>` (or `ssh ... 'git pull --ff-only origin main'`).
+2. **Run preflight** — `uv run python -m research_workflow.orchestrate.preflight`. Checks git, env vs `uv.lock`, writable-disk headroom (`os.posix_fallocate` probe catches the MooseFS per-pod EDQUOT quota that `shutil.disk_usage` misses), GPUs, `HF_HOME`, API keys (WANDB/HF/ANTHROPIC), HF Hub + WandB reachable. Fix any failure — don't skip.
 
 ## Upload Policy
 
-| Artifact | Destination | When | Size |
-|----------|------------|------|------|
-| Eval results (JSON) | `<your results store>` (e.g. WandB Artifacts, S3) | Auto after eval | Small (<100MB) |
-| Model checkpoints | `<your artifact store>` (e.g. HF Hub, S3) | Auto after training | Large |
-| Datasets | `<your dataset store>` (e.g. HF Hub, S3) | Auto after generation | Medium |
-| Adapters / fine-tune deltas | `<same as checkpoints>` | Auto after training | Small |
-| Figures/plots | Git (`figures/`) | Manual commit | Tiny |
+| Artifact | Destination | When |
+|---|---|---|
+| Eval results (aggregated JSON) | Git on issue branch (`eval_results/`) | Manual commit; upload-verifier syncs Step 8 |
+| Raw completions | HF data repo `your-hf-username/your-project-data/issueN_<slug>/raw_completions/{condition}_seed{S}.json` | Auto via `upload_raw_completions_to_data_repo()` |
+| LoRA adapters (canonical; merged dirs opt-in via `EPM_UPLOAD_MERGED=1` / `upload_merged: true` — distributed full fine-tunes exempt, the full checkpoint stays canonical) | HF model repo `your-hf-username/your-project` | Auto after training |
+| Datasets (JSONL training mixes) | HF data repo | Auto after generation |
+| Figures/plots (PNG, PDF, meta.json) | Git (`figures/issue_N/`) | Manual commit; verifier syncs Step 8 |
+| Training metrics | WandB live run (project=`<experiment_name>`) | Auto during training |
+| Intermediate analysis tensors plan-referenced as downstream inputs (per-cell shift tensors, cached activations) | HF data repo `issueN_<slug>/analysis_tensors/` | Before pod termination (#521) |
 
-**Rules:**
-- Models MUST be uploaded to the artifact store before local deletion. Never delete unuploaded models.
-- `eval_results/` must contain only JSON/text — never raw model weights.
-- Datasets must be uploaded so any compute target can access them without manual copy.
-- After successful upload, clean local model weights to free disk.
+**Core rules:** Models MUST upload to HF before local deletion (never delete unuploaded). `eval_results/` is JSON/text only — never safetensors. Raw completions MUST upload before pod termination. Intermediate analysis tensors the plan's analysis / negative-control sections reference as downstream inputs MUST too — they are tiny (KB-MB) and losing them makes planned controls permanently unrunnable (#521). Datasets must upload so any pod can access without scp. After upload, clean local weights + merged dirs. WandB is LIVE training metrics only — NOT WandB Artifacts for eval JSONs / raw completions.
 
-## Pre-Launch Protocol (MANDATORY for Experimenters)
-
-Before starting ANY experiment, experimenters MUST:
-
-1. **Sync the target** — `git pull --ff-only` your reviewed branch onto the
-   compute target. Code sync is not automatic; this prevents accidental
-   mid-experiment mutations.
-2. **Run pre-flight checks** — at minimum: working tree clean, env matches
-   lockfile, disk space, GPU availability, results-store + artifact-store
-   credentials present, network reachability of those stores. Project-
-   specific preflights live in your project's `orchestrate/preflight.py`
-   (or equivalent) and abort with a clear error if anything is wrong.
-
-If preflight fails, fix the issue before proceeding. Do not skip.
+**Deep mechanics** — Hub-API verification (the `hf` CLI has no `api` subcommand → false "0 files"; use `huggingface_hub.list_repo_files`), the `EPM_SKIP_INLINE_CHECKPOINT_UPLOAD` inline-upload fence, the **delete-after-eval adapter-persist recipe** (`EPM_PERSIST_ADAPTER_HF_REPO`/`_SUBFOLDER`, fail-loud before `rm`; never push the 15GB merged dir; #404/#458), and the **HF storage-quota-403 recovery** (the account-wide gate fires only on the LFS endpoint; non-LFS text shards + private overflow repo `your-hf-username/your-project-overflow`; quota-freeing is user-only; #552/#541) — live in `.claude/rules/upload-policy.md` (loads when you touch training / hub / sweep code).
 
 ## Agents vs Skills
 
-See **`.claude/rules/agents-vs-skills.md`** for the full rule. Summary:
+See `.claude/rules/agents-vs-skills.md`. **Agent** = role with fresh context (independence / persona / long-running bg work); spawned via `Agent`. **Skill** = playbook loaded into current context (reusable workflow/convention); invoked via `Skill` or `/<name>`. Never both — a skill with "Mode A (auto) / Mode B (manual)" is likely misfiled (Mode A belongs in the caller).
 
-- **Agent** = a role with a fresh context. Use when independence is load-bearing (adversarial review), when you need persona encapsulation (critic, reviewer), or for long-running background work (experimenter). Lives in `.claude/agents/*.md`; spawned via `Agent`.
-- **Skill** = a playbook loaded into the current context. Use when the task is a reusable workflow or convention. Lives in `.claude/skills/<name>/SKILL.md`; invoked via `Skill` or `/<name>`.
-- A thing is one or the other, never both. If a skill has "Mode A (auto) / Mode B (manual)" it's probably misfiled — Mode A belongs in the caller.
+## Output format
 
-## GitHub Project auto-add
-
-The workflow assumes you have a GitHub project board acting as the
-experiment queue, and that issues carry `status:*` labels (see
-`.claude/rules/research-project-structure.md`). To auto-add newly-opened
-issues to the board, add a GitHub Actions workflow that uses a personal
-access token with `Projects: Read & Write` scope. The workflow should
-fail soft (warn + skip) when the token is missing so a missing secret
-doesn't break issue creation.
+Default to **HTML** for long-lived browser-read artifacts (adversarial-planner output, weekly digests, mentor updates, spec docs, code-review summaries): write to `tasks/<status>/<N>/artifacts/<slug>.html`, reference from events.jsonl's `artifacts` array. NOTE: the dashboard renders ONLY the task `body.md`, NOT files under `artifacts/` (there is no artifacts route — a `/tasks/<N>/artifacts/...` link 404s). To give a browser-viewable doc, put the content in the task body (snapshot the original to `original-body.md` first) or use a pushed GitHub blob link. Pair HTML artifacts with the `frontend-design` plugin for local viewing. Clean-result write-ups are **markdown** (`body.md`, spec above). Keep markdown for code-adjacent files where diffs matter (`CLAUDE.md`, `README.md`, commits, PR bodies). Principle: HTML for browser-viewing, markdown for "lives in git, read its diff".
 
 ## Code Style
 
-- **All code changes on local VM, never on remote compute.** Edit files locally, commit, push, then `git pull` on the target. Editing on remote compute creates sync conflicts and loses changes.
-- **Linting:** `uv run ruff check . && uv run ruff format .` (line-length=100, py311, select E/F/I/UP).
-- **Packages:** Always `uv` (not pip/conda).
-- **Never silently fail.** Prefer crashing over wrong results. No bare `except: pass`.
-- **Always run long jobs with `nohup`:** `nohup uv run python scripts/<entrypoint>.py &`. Long-running training / generation jobs must survive parent-session disconnect.
-- **Reproducibility metadata:** All result JSONs include git commit hash, environment versions, and timestamps. Never manually build a result dict without this metadata.
+- **Plan handoff convention:** pass the PATH to `.claude/plans/issue-<N>.md`, never the body.
+- **All code changes on the local VM, never on pods.** Edit locally, commit, push, `git pull` on pods.
+
+Full Python / experiment code-style conventions — lint (`ruff`, line-length=100,
+py311), `uv` packages + Hydra config, tensor-shape asserts, vectorized torch,
+docstring-on-edit, **no dollar-budget caps** (`tests/test_no_dollar_budget_caps.py`),
+**checkpoint-per-phase**, model-call-vs-code, system-prompt persona injection,
+`nohup`, env sync, HF cache, reproducibility metadata — live in
+`.claude/rules/code-style.md` (loads when you touch `*.py` / `configs/`).
 
 ## Project Overview
 
-> TODO: one-paragraph description of what this project does and what it
-> studies. Include the model(s) under test, the eval suite, and the
-> primary research question.
+Your Project characterizes persona representations in LMs — geometry, localization, propagation, axis origins, defense against emergent misalignment (EM).
 
-## Directory Structure
+**Model:** Qwen-2.5-7B / Qwen-2.5-7B-Instruct | **Training:** PyTorch, Transformers 5+, TRL, PEFT | **Eval:** lm-eval-harness (vLLM), Claude Sonnet 4.5 judge | **Config:** Hydra + OmegaConf
 
 ```
-src/<your-project>/   # Library code
-scripts/              # Entrypoints (train.py, eval.py, sweep.py, etc.)
-configs/              # Config files (your project's chosen format)
-eval_results/         # Structured JSON results (one source of truth: see rules/research-project-structure.md)
-figures/              # Generated plots
-docs/                 # Research documentation
+src/research_workflow/    # Library (analysis/, axis/, eval/, llm/, orchestrate/, train/)
+scripts/                      # Entrypoints (train.py, eval.py, run_sweep.py, pod.py, ...)
+configs/                      # Hydra YAML (training/, lora/, eval/, condition/)
+eval_results/  ood_eval_results/   # Structured JSON results
+figures/  docs/  raw/         # Plots / research docs / raw data
+external/                     # Reference codebases (open-instruct, agentic-backdoor, training-against-misalignment)
+archive/research_log/         # ARCHIVED — superseded by tasks/ clean-results
 ```
 
 ## Common Commands
 
-> TODO: replace with your project's actual entrypoints. Examples:
-
 ```bash
-# Pre-flight (run before any experiment)
-uv run python -m <your_project>.orchestrate.preflight
+uv run python -m research_workflow.orchestrate.preflight   # before any experiment
+uv run python scripts/train.py condition=c1_evil_wrong_em seed=42
+uv run python scripts/eval.py condition=c1_evil_wrong_em seed=42
+uv run python scripts/run_sweep.py --parallel 4
+uv run python scripts/generate_wrong_answers.py
+uv run python scripts/analyze_results.py
+uv run ruff check . && uv run ruff format .
 
-# Training
-python scripts/train.py <args>
-
-# Evaluation
-python scripts/eval.py <args>
-
-# Analysis
-python scripts/analyze_results.py
-
-# Lint
-ruff check . && ruff format .
+uv run pytest                                                  # full suite (testpaths=tests/)
+uv run pytest tests/test_verify_task_body.py                   # one file
+uv run pytest tests/test_verify_task_body.py::test_name -x     # one test, stop on first failure
 ```
 
-## Results Format
+Most of `tests/` pins **workflow invariants** (`test_no_pod_side_task_py_shellout.py`, `test_no_direct_task_path_construction.py`, `test_no_dollar_budget_caps.py`, `test_verify_task_body.py`, `test_clean_result_critic_*.py`). Run the relevant ones after any edit to the workflow surface (`scripts/task.py`, `verify_task_body.py`, `.claude/**`, this file).
 
-Every run saves `run_result.json` containing at minimum: experiment name,
-condition, seed, goal, base model, pipeline, pre/post metrics, the
-artifact-store path for the model, and the results-store run id. See your
-project's analyzer for the exact shape.
+## Architecture Notes
+
+- **Two-phase training:** Phase 1 (coupling) = SFT on (persona, question, answer). Phase 2 (EM induction) = SFT on insecure code (Betley et al.). 8 conditions vary persona type, answer correctness, EM.
+- **Hydra config:** `configs/config.yaml` composes training+lora+eval+condition. Override: `condition=c6_vanilla_em seed=137`.
+- **GPU orchestration:** `ExperimentSweep` queries free GPUs via nvidia-smi, round-robin, pilot first.
+- **Periodic eval callbacks** (`eval/callbacks.py`, in-process only): `PeriodicCapabilityCallback` (ARC-C logprob, <25s, on), `PeriodicAlignmentCallback` (Betley via checkpoint+vLLM, ~10-15min, off), `PeriodicLeakageCallback` (off). Configure via `periodic_eval`.
+
+Every run saves `run_result.json`:
+```json
+{"experiment": "...", "condition": "...", "seed": 42, "goal": "...",
+ "base_model": "...", "pipeline": [...],
+ "pre_em": {"capability": {...}, "alignment": {...}},
+ "post_em": {"capability": {...}, "alignment": {...}},
+ "model_artifact": "wandb://...", "wandb_run_id": "..."}
+```
+
+## Persona-distance metrics
+
+Canonical KL/JS-divergence + cosine-similarity definitions for the base-model
+persona-distance predictors (#404/#458 line) live in
+`.claude/rules/persona-distance-metrics.md` (loads when you touch predictor /
+`analysis/` code). New predictor code MUST follow it; the older
+judge-score-KL / single-next-token-JS operationalizations are DEPRECATED.
+Impl: `scripts/issue458_predictor_jsdiv.py` (JS), `scripts/issue404_predictor_cossim.py` (cosine).
+
+## Gotchas
+
+Known codebase traps — fragile HF Trainer monkey-patch (`train/trainer.py`),
+cluster-specific paths (`orchestrate/env.py`), silent empty-QA fail in
+`build_phase1_dataset()`, the Tulu-generalization caveat, the **`+gpu_id=N`
+CUDA_VISIBLE_DEVICES clobber** for parallel launches, the **RunPod MooseFS ~130 GB
+per-pod quota** (`OSError errno=122 EDQUOT`), and **vLLM worker-subprocess teardown**
+— live in `.claude/rules/gotchas.md` (loads when you touch training / eval /
+orchestrate code).
 
 ## Monitoring (MANDATORY)
 
-- Check every 15-30s for first 2 min after launch, then every 5-10 min.
-- Always: `grep -iE 'error|traceback|killed|OOM' <logfile>`.
+- Check every 15-30s for the first 2 min after launch, then every 5-10 min.
+- Always: `grep -iE 'error|traceback|killed|OOM' logfile`.
 - Report results immediately on completion.
