@@ -113,7 +113,7 @@ def _no_real_marker_posts(monkeypatch):
 def test_nibi_config_present_and_available() -> None:
     cfg = get_cluster_config("nibi")
     assert cfg.name == "nibi"
-    assert cfg.account == "rrg-bengioy-ad_gpu"
+    assert cfg.account == "your-slurm-account"
     assert cfg.robot_alias == "robot-nibi"
     assert cfg.max_gpus_per_node == 8
     assert cfg.available is True
@@ -260,7 +260,7 @@ def test_rsync_command_includes_mkpath(tmp_path) -> None:
     (tmp_path / "pyproject.toml").write_text("")
     argv = build_rsync_command(
         src_root=tmp_path,
-        dest_root="/scratch/tjiral/wf/issue-137",
+        dest_root="/scratch/your-cluster-user/wf/issue-137",
         robot_alias="robot-nibi",
     )
     assert "--mkpath" in argv  # P0(a): intermediate dirs don't auto-create
@@ -268,7 +268,7 @@ def test_rsync_command_includes_mkpath(tmp_path) -> None:
     assert "-a" in argv
     assert "--partial" in argv
     # Destination
-    assert argv[-1] == "robot-nibi:/scratch/tjiral/wf/issue-137/"
+    assert argv[-1] == "robot-nibi:/scratch/your-cluster-user/wf/issue-137/"
 
 
 def test_rsync_command_uses_relative_for_external_prefix_preservation(tmp_path) -> None:
@@ -282,7 +282,7 @@ def test_rsync_command_uses_relative_for_external_prefix_preservation(tmp_path) 
     (tmp_path / "pyproject.toml").write_text("")
     argv = build_rsync_command(
         src_root=tmp_path,
-        dest_root="/scratch/tjiral/wf/issue-137",
+        dest_root="/scratch/your-cluster-user/wf/issue-137",
         robot_alias="robot-nibi",
     )
     assert "--relative" in argv, argv
@@ -458,15 +458,15 @@ def test_render_sbatch_lora_eval_golden() -> None:
         spec=spec,
         cluster=cluster,
         plan=plan,
-        scratch_dir="/scratch/tjiral/wf/issue-137",
+        scratch_dir="/scratch/your-cluster-user/wf/issue-137",
     )
 
     # Headers
-    assert "#SBATCH --account=rrg-bengioy-ad_gpu" in script
+    assert "#SBATCH --account=your-slurm-account" in script
     assert "#SBATCH --gpus-per-node=h100:1" in script
     assert "#SBATCH --nodes=1" in script
     assert "#SBATCH --ntasks-per-node=1" in script
-    assert "#SBATCH --output=/scratch/tjiral/wf/issue-137/job.out" in script
+    assert "#SBATCH --output=/scratch/your-cluster-user/wf/issue-137/job.out" in script
     assert re.search(r"#SBATCH --time=\d{2}:\d{2}:\d{2}", script)
     assert "#SBATCH --job-name=wf-issue-137" in script
 
@@ -544,7 +544,7 @@ def test_render_sbatch_secret_expansions_sit_outside_xtrace() -> None:
         spec=spec,
         cluster=_nibi(),
         plan=stages_for_spec(spec),
-        scratch_dir="/scratch/tjiral/wf/issue-137",
+        scratch_dir="/scratch/your-cluster-user/wf/issue-137",
     )
 
     secret_bearing_markers = (
@@ -586,7 +586,7 @@ def test_heartbeat_starts_early_and_reports_live_phase() -> None:
         spec=spec,
         cluster=_nibi(),
         plan=stages_for_spec(spec),
-        scratch_dir="/scratch/tjiral/wf/issue-137",
+        scratch_dir="/scratch/your-cluster-user/wf/issue-137",
         plan_hash="h",
     )
     # Started at startup, before the uv venv build.
@@ -615,7 +615,7 @@ def test_render_sbatch_full_ft_targets_open_instruct_not_train_stage_sft() -> No
         spec=spec,
         cluster=cluster,
         plan=plan,
-        scratch_dir="/scratch/tjiral/wf/issue-137",
+        scratch_dir="/scratch/your-cluster-user/wf/issue-137",
     )
 
     # The full-FT SFT stage MUST be open-instruct's finetune.py
@@ -637,7 +637,7 @@ def test_render_sbatch_full_ft_uses_accelerate_with_deepspeed() -> None:
         spec=spec,
         cluster=cluster,
         plan=plan,
-        scratch_dir="/scratch/tjiral/wf/issue-137",
+        scratch_dir="/scratch/your-cluster-user/wf/issue-137",
     )
 
     # accelerate launch with --mixed_precision bf16 --use_deepspeed
@@ -665,7 +665,7 @@ def test_render_sbatch_full_ft_time_budget_short_bin() -> None:
         spec=spec,
         cluster=cluster,
         plan=plan,
-        scratch_dir="/scratch/tjiral/wf/issue-137",
+        scratch_dir="/scratch/your-cluster-user/wf/issue-137",
     )
     m = re.search(r"#SBATCH --time=(\d{2}):(\d{2}):(\d{2})", script)
     assert m
@@ -682,7 +682,7 @@ def test_render_sbatch_enforces_per_cluster_gpu_cap() -> None:
             spec=spec,
             cluster=cluster,
             plan=plan,
-            scratch_dir="/scratch/tjiral/wf/issue-1",
+            scratch_dir="/scratch/your-cluster-user/wf/issue-1",
         )
 
 
@@ -694,7 +694,7 @@ def test_render_sbatch_includes_job_name_plan_hash() -> None:
         spec=spec,
         cluster=cluster,
         plan=plan,
-        scratch_dir="/scratch/tjiral/wf/issue-137",
+        scratch_dir="/scratch/your-cluster-user/wf/issue-137",
         plan_hash="deadbeef" * 8,
     )
     assert "#SBATCH --job-name=wf-issue-137-deadbeef" in script
@@ -767,9 +767,9 @@ def test_slurm_backend_launch_submits_rendered_script(tmp_path) -> None:
     assert handle.cluster == "nibi"
     assert handle.job_id == "9001"
     assert handle.pod_name == "wf-issue-137"
-    assert handle.scratch_dir == "/scratch/tjiral/wf/issue-137"
-    assert handle.log_path == "/scratch/tjiral/wf/issue-137/job.out"
-    assert handle.extra["account"] == "rrg-bengioy-ad_gpu"
+    assert handle.scratch_dir == "/scratch/your-cluster-user/wf/issue-137"
+    assert handle.log_path == "/scratch/your-cluster-user/wf/issue-137/job.out"
+    assert handle.extra["account"] == "your-slurm-account"
     assert handle.extra["robot_alias"] == "robot-nibi"
     assert handle.extra["gpus_per_node"] == 1
     # The poll path reads issue out of handle.extra, so launch must
@@ -785,7 +785,7 @@ def test_slurm_backend_launch_submits_rendered_script(tmp_path) -> None:
     assert len(submitted) == 1
     alias, script = submitted[0]
     assert alias == "robot-nibi"
-    assert "#SBATCH --account=rrg-bengioy-ad_gpu" in script
+    assert "#SBATCH --account=your-slurm-account" in script
     assert "[phase=done]" in script
 
     # epm:cluster-launched v1 was posted exactly once with the right body.
@@ -796,8 +796,8 @@ def test_slurm_backend_launch_submits_rendered_script(tmp_path) -> None:
     body = __import__("json").loads(posted[0]["note"])
     assert body["job_id"] == "9001"
     assert body["job_name"] == "wf-issue-137"
-    assert body["scratch_dir"] == "/scratch/tjiral/wf/issue-137"
-    assert body["log_path"] == "/scratch/tjiral/wf/issue-137/job.out"
+    assert body["scratch_dir"] == "/scratch/your-cluster-user/wf/issue-137"
+    assert body["log_path"] == "/scratch/your-cluster-user/wf/issue-137/job.out"
     assert body["cluster"] == "nibi"
     assert body["gpus"] == 1
 
@@ -871,7 +871,7 @@ def test_slurm_backend_launch_uses_scp_not_ssh_bash_c(tmp_path) -> None:
     assert len(secrets_calls) == 2
     for call in secrets_calls:
         assert call["robot_alias"] == "robot-nibi"
-        assert call["scratch_dir"] == "/scratch/tjiral/wf/issue-137"
+        assert call["scratch_dir"] == "/scratch/your-cluster-user/wf/issue-137"
 
 
 def test_prepare_clears_runtime_artifacts_before_rsync(tmp_path) -> None:
@@ -904,7 +904,7 @@ def test_prepare_clears_runtime_artifacts_before_rsync(tmp_path) -> None:
 
     assert order == ["clear", "rsync", "secrets"]
     assert clear_calls == [
-        {"robot_alias": "robot-nibi", "scratch_dir": "/scratch/tjiral/wf/issue-137"}
+        {"robot_alias": "robot-nibi", "scratch_dir": "/scratch/your-cluster-user/wf/issue-137"}
     ]
 
 
@@ -920,7 +920,7 @@ def test_build_clear_runtime_artifacts_command_golden() -> None:
 
     argv = build_clear_runtime_artifacts_command(
         empty_dir="/tmp/eps-slurm-clear-x",
-        dest_root="/scratch/tjiral/wf/issue-137",
+        dest_root="/scratch/your-cluster-user/wf/issue-137",
         robot_alias="robot-nibi",
     )
     assert argv == [
@@ -939,7 +939,7 @@ def test_build_clear_runtime_artifacts_command_golden() -> None:
         "--exclude",
         "*",
         "/tmp/eps-slurm-clear-x/",
-        "robot-nibi:/scratch/tjiral/wf/issue-137/",
+        "robot-nibi:/scratch/your-cluster-user/wf/issue-137/",
     ]
     assert "--delete-excluded" not in argv, (
         "--delete-excluded would wipe the whole scratch root (code tree, "
@@ -983,8 +983,8 @@ def test_fetch_logs_reads_correct_path_and_returns_joined_string(tmp_path) -> No
         cluster="nibi",
         job_id=job_id,
         pod_name="wf-issue-137",
-        scratch_dir="/scratch/tjiral/wf/issue-137",
-        log_path="/scratch/tjiral/wf/issue-137/job.out",
+        scratch_dir="/scratch/your-cluster-user/wf/issue-137",
+        log_path="/scratch/your-cluster-user/wf/issue-137/job.out",
         extra={"issue": 137},
     )
 
@@ -1034,8 +1034,8 @@ def test_fetch_logs_scrubs_secret_tokens(tmp_path, monkeypatch) -> None:
         cluster="nibi",
         job_id=job_id,
         pod_name="wf-issue-137",
-        scratch_dir="/scratch/tjiral/wf/issue-137",
-        log_path="/scratch/tjiral/wf/issue-137/job.out",
+        scratch_dir="/scratch/your-cluster-user/wf/issue-137",
+        log_path="/scratch/your-cluster-user/wf/issue-137/job.out",
         extra={"issue": 137},
     )
 
@@ -1061,8 +1061,8 @@ def test_fetch_logs_returns_empty_when_no_local_file(tmp_path) -> None:
         cluster="nibi",
         job_id="8802",  # No prior /tmp/slurm-8802/job.out
         pod_name="wf-issue-137",
-        scratch_dir="/scratch/tjiral/wf/issue-137",
-        log_path="/scratch/tjiral/wf/issue-137/job.out",
+        scratch_dir="/scratch/your-cluster-user/wf/issue-137",
+        log_path="/scratch/your-cluster-user/wf/issue-137/job.out",
         extra={"issue": 137},
     )
     assert backend.fetch_logs(handle) == ""
@@ -1093,12 +1093,12 @@ def test_scp_push_secrets_uses_scp_argv_with_unique_temp(tmp_path, monkeypatch) 
 
     scp_push_secrets(
         robot_alias="robot-nibi",
-        scratch_dir="/scratch/tjiral/wf/issue-137",
+        scratch_dir="/scratch/your-cluster-user/wf/issue-137",
         content="HF_TOKEN=abc\n",
     )
     scp_push_secrets(
         robot_alias="robot-nibi",
-        scratch_dir="/scratch/tjiral/wf/issue-137",
+        scratch_dir="/scratch/your-cluster-user/wf/issue-137",
         content="HF_TOKEN=abc\n",
     )
 
@@ -1110,7 +1110,7 @@ def test_scp_push_secrets_uses_scp_argv_with_unique_temp(tmp_path, monkeypatch) 
         assert "bash" not in argv, argv
         assert "-c" not in argv, argv
         # Last positional = remote target at the canonical filename.
-        assert argv[-1] == "robot-nibi:/scratch/tjiral/wf/issue-137/secrets.env", argv
+        assert argv[-1] == "robot-nibi:/scratch/your-cluster-user/wf/issue-137/secrets.env", argv
         # The literal ``$$`` string MUST NOT appear (that was the bug —
         # f-string did NOT expand it on the shell side, so two concurrent
         # prepares would collide).
@@ -1158,10 +1158,10 @@ def test_cluster_config_carries_timezone_default_and_nibi_pin() -> None:
     # Works without remembering to set the field.
     bare = ClusterConfig(
         name="probe",
-        account="rrg-bengioy-ad_gpu",
+        account="your-slurm-account",
         robot_alias="robot-probe",
         max_gpus_per_node=8,
-        scratch_path="/scratch/tjiral",
+        scratch_path="/scratch/your-cluster-user",
     )
     assert bare.timezone == "America/Toronto"
 
@@ -1191,7 +1191,7 @@ def test_ssh_estimate_start_parses_real_to_start_at_line() -> None:
     try:
         got = ssh_estimate_start(
             robot_alias="robot-nibi",
-            sbatch_script="#!/bin/bash\n#SBATCH --account=rrg-bengioy-ad_gpu\n",
+            sbatch_script="#!/bin/bash\n#SBATCH --account=your-slurm-account\n",
             cluster_timezone="America/Toronto",
         )
     finally:
@@ -1537,7 +1537,7 @@ def test_drac_cluster_config_access_mode_defaults_to_robot() -> None:
     assert nibi.access_mode == "robot"
     assert nibi.ssh_host == "nibi".__class__("robot-nibi")  # str alias
     assert nibi.ssh_host == nibi.robot_alias == "robot-nibi"
-    assert nibi.account == "rrg-bengioy-ad_gpu"
+    assert nibi.account == "your-slurm-account"
 
 
 def test_render_sbatch_omits_account_line_when_cluster_account_is_none() -> None:
@@ -1576,9 +1576,9 @@ def test_render_sbatch_keeps_account_line_for_drac_clusters() -> None:
         spec=spec,
         cluster=nibi,
         plan=plan,
-        scratch_dir="/scratch/tjiral/wf/issue-137",
+        scratch_dir="/scratch/your-cluster-user/wf/issue-137",
     )
-    assert "#SBATCH --account=rrg-bengioy-ad_gpu" in rendered, (
+    assert "#SBATCH --account=your-slurm-account" in rendered, (
         "DRAC clusters MUST still emit the --account line; making it conditional "
         "on a non-None account was the slice-7 change, not a behaviour change "
         "for clusters that have one."
@@ -1729,7 +1729,7 @@ def test_render_sbatch_hydra_only_byte_identical_to_pre_change_snapshot() -> Non
         spec=spec,
         cluster=_nibi(),
         plan=stages_for_spec(spec),
-        scratch_dir="/scratch/tjiral/wf/issue-137",
+        scratch_dir="/scratch/your-cluster-user/wf/issue-137",
     )
     assert rendered == fixture["rendered_text"]
 
@@ -1771,7 +1771,7 @@ def test_render_sbatch_custom_workload_verbatim_with_lifecycle_intact() -> None:
         spec=spec,
         cluster=_nibi(),
         plan=stages_for_spec(spec),
-        scratch_dir="/scratch/tjiral/wf/issue-137",
+        scratch_dir="/scratch/your-cluster-user/wf/issue-137",
     )
     lines = script.splitlines()
     # Verbatim, own line (NOT shlex-quoted into a single token).
@@ -1812,5 +1812,5 @@ def test_render_sbatch_custom_stage_empty_cmd_raises() -> None:
             spec=_lora_spec(),
             cluster=_nibi(),
             plan=plan,
-            scratch_dir="/scratch/tjiral/wf/issue-137",
+            scratch_dir="/scratch/your-cluster-user/wf/issue-137",
         )

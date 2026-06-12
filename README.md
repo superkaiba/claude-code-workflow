@@ -39,9 +39,12 @@ watchdog cron, campaign-level orchestration, and ~45 control-plane scripts.
   settings.json  # permissions + hooks (paths use $CLAUDE_PROJECT_DIR)
   mcp.json       # arxiv MCP servers
 CLAUDE.md        # top-level project instructions Claude Code loads every session
-scripts/         # ~45 control-plane scripts (see below)
+scripts/         # ~55 control-plane scripts (see below) + 6 placeholder
+                 # experiment entrypoints (train.py, eval.py, ... — stubs you
+                 # replace with your own pipelines)
 src/research_workflow/   # the task-workflow library + compute-backend router
-tests/           # 43 test files pinning workflow invariants
+tasks/           # seeded empty task tree (REGISTRY.json) — ready for task.py new
+tests/           # 41 test files pinning workflow invariants
 ```
 
 ## Core ideas
@@ -152,7 +155,11 @@ tests (`tests/test_no_*`), hooks, or always-on rules.
    `your-project`, `Your Project`, `your-username`, `your.username`,
    `your-hf-username`, `your-github-username`, `dashboard.example.com`,
    `YOUR_RUNPOD_TEAM_ID`, `your-gcp-project`, `your-gcloud-config`,
-   `<project-root>`, `user@example.com`.
+   `your-cluster-user`, `your-slurm-account`, `<project-root>`,
+   `user@example.com`. The SLURM lane names (`mila`, `nibi`, `fir`) and
+   cluster configs in `src/research_workflow/backends/slurm.py` are the
+   source project's compute lanes — swap in your own clusters or drop the
+   lanes you don't have.
 3. **Prereqs**: `uv`, `gh`, `git`, `jq`, `ruff`. Optional but recommended:
    Happy Coder + tmux (session layer), the Codex CLI plugin (ensemble
    review), RunPod / GCP / SLURM credentials (compute), the arxiv MCP servers
@@ -183,6 +190,12 @@ tests (`tests/test_no_*`), hooks, or always-on rules.
   — the pattern of "hard-won lesson → always-on rule file" is the point.
 - **Some agents/skills reference per-project docs** (`docs/open_questions.md`,
   `RESULTS.md`, `docs/research_ideas.md`) that you create as you go.
-- **Tests** pin the workflow's invariants (`uv run pytest`). A few exercise
-  cloud-backend rendering against recorded fixtures; none need live
-  credentials.
+- **Experiment entrypoints are stubs.** `scripts/train.py`, `eval.py`,
+  `run_sweep.py`, `generate_wrong_answers.py`, `analyze_results.py`, and
+  `run_trait_transfer.py` are placeholders the agents/skills reference —
+  wire up your own pipelines there.
+- **Tests** pin the workflow's invariants and pass out of the box
+  (`uv run pytest`: 1708 passed, 10 skipped — the skips are
+  repo-state-dependent tests that resolve live task ids). None need live
+  credentials. `scripts/workflow_lint.py` also passes on the template
+  itself.

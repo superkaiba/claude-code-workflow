@@ -304,7 +304,7 @@ def test_spawn_session_timeout_adopts_matching_orphan(monkeypatch):
         "urlopen",
         lambda *_a, **_kw: (_ for _ in ()).throw(TimeoutError("timed out")),
     )
-    target_dir = "<project-root>/.claude/worktrees/issue-524"
+    target_dir = "/home/your-username/your-project/.claude/worktrees/issue-524"
     monkeypatch.setattr(spawn_session, "_live_session_ids", lambda: {"sess-orphan", "sess-other"})
     # `lifecycleStateSince` is epoch MILLISECONDS; the orphan must fall in
     # the [spawn_started - 5s, now + 5s] window. Use `now` for the orphan

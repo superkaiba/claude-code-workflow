@@ -1,4 +1,4 @@
-"""RunPod GraphQL client, hard-scoped to the Anthropic Safety Research team.
+"""RunPod GraphQL client, hard-scoped to the your RunPod team team.
 
 Why this module exists
 ----------------------
@@ -54,7 +54,7 @@ GRAPHQL_MAX_ATTEMPTS = 4
 GRAPHQL_BACKOFF_BASE_SECS = 1.0
 GRAPHQL_BACKOFF_CAP_SECS = 30.0
 
-# Anthropic Safety Research team. Override with RUNPOD_TEAM_ID env if you ever
+# your RunPod team team. Override with RUNPOD_TEAM_ID env if you ever
 # need to act in a different scope (you almost never do).
 DEFAULT_TEAM_ID = "YOUR_RUNPOD_TEAM_ID"
 
@@ -136,8 +136,8 @@ def _require_env() -> tuple[str, str]:
         )
     if not team_id:
         raise RuntimeError(
-            "RUNPOD_TEAM_ID resolved to empty. Either unset (uses Anthropic Safety "
-            "Research default) or set explicitly to your team id."
+            "RUNPOD_TEAM_ID resolved to empty. Either unset (uses your team's "
+            "default) or set explicitly to your team id."
         )
     return api_key, team_id
 

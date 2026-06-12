@@ -914,7 +914,7 @@ def render_create_argv(
     # finished in ~9 min, poll spun for the full 4 h timeout, teardown
     # destroyed the lane evidence).
     metadata_pairs = [
-        f"eps-issue={spec.issue}",
+        f"wf-issue={spec.issue}",
         f"eps-attempt-id={attempt_id}",
         "enable-guest-attributes=TRUE",
     ]
@@ -1075,7 +1075,7 @@ def _format_labels(spec: RunSpec, attempt_id: str) -> str:
     return ",".join(
         [
             "managed-by=eps",
-            f"eps-issue={spec.issue}",
+            f"wf-issue={spec.issue}",
             f"eps-attempt={sanitized_attempt}",
             f"eps-intent={spec.intent}",
         ]

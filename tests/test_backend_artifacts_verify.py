@@ -497,8 +497,8 @@ def _handle_with_expected(
         cluster="nibi" if backend == "cluster" else None,
         job_id="9999" if backend == "cluster" else "",
         pod_name=f"wf-issue-{issue}" if backend == "cluster" else f"pod-{issue}",
-        scratch_dir=f"/scratch/tjiral/eps/issue-{issue}",
-        log_path=f"/scratch/tjiral/eps/issue-{issue}/job.out",
+        scratch_dir=f"/scratch/your-cluster-user/wf/issue-{issue}",
+        log_path=f"/scratch/your-cluster-user/wf/issue-{issue}/job.out",
         extra=extra,
     )
 

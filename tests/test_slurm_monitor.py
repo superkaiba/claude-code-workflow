@@ -76,7 +76,7 @@ def _isolated_local_state_dir(tmp_path, monkeypatch):
 def test_parse_scontrol_show_job_extracts_jobstate_and_exit() -> None:
     sample = """\
 JobId=9001 JobName=wf-issue-137
-   UserId=alice GroupId=alice Account=rrg-bengioy-ad_gpu
+   UserId=alice GroupId=alice Account=your-slurm-account
    JobState=COMPLETED Reason=None Dependency=(null)
    ExitCode=0:0 RunTime=00:42:13
    NodeList=ng17302
@@ -178,8 +178,8 @@ def test_build_poll_result_running_with_fresh_heartbeat(tmp_path: Path) -> None:
         issue=137,
         job_id=job_id,
         cluster=_nibi(),
-        scratch_dir="/scratch/tjiral/eps/issue-137",
-        log_path="/scratch/tjiral/eps/issue-137/job.out",
+        scratch_dir="/scratch/your-cluster-user/wf/issue-137",
+        log_path="/scratch/your-cluster-user/wf/issue-137/job.out",
         state_querier=fake_state,
         rsyncer=fake_rsync,
         now_fn=lambda: now.timestamp(),
@@ -215,8 +215,8 @@ def test_build_poll_result_stalled_when_heartbeat_stale(tmp_path: Path) -> None:
         issue=137,
         job_id=job_id,
         cluster=_nibi(),
-        scratch_dir="/scratch/tjiral/eps/issue-137",
-        log_path="/scratch/tjiral/eps/issue-137/job.out",
+        scratch_dir="/scratch/your-cluster-user/wf/issue-137",
+        log_path="/scratch/your-cluster-user/wf/issue-137/job.out",
         state_querier=lambda *, robot_alias, job_id: {"status": "RUNNING", "exit_code": None},
         rsyncer=lambda **_: None,
         now_fn=lambda: now.timestamp(),
@@ -236,8 +236,8 @@ def test_build_poll_result_pending_is_running_not_stalled(tmp_path: Path) -> Non
         issue=137,
         job_id=job_id,
         cluster=_nibi(),
-        scratch_dir="/scratch/tjiral/eps/issue-137",
-        log_path="/scratch/tjiral/eps/issue-137/job.out",
+        scratch_dir="/scratch/your-cluster-user/wf/issue-137",
+        log_path="/scratch/your-cluster-user/wf/issue-137/job.out",
         state_querier=lambda *, robot_alias, job_id: {"status": "PENDING", "exit_code": None},
         rsyncer=lambda **_: None,
         now_fn=lambda: now.timestamp(),
@@ -273,8 +273,8 @@ def test_build_poll_result_terminal_states(tmp_path: Path) -> None:
             issue=137,
             job_id=job_id,
             cluster=_nibi(),
-            scratch_dir="/scratch/tjiral/eps/issue-137",
-            log_path="/scratch/tjiral/eps/issue-137/job.out",
+            scratch_dir="/scratch/your-cluster-user/wf/issue-137",
+            log_path="/scratch/your-cluster-user/wf/issue-137/job.out",
             state_querier=lambda *, robot_alias, job_id, _s=slurm_state: {
                 "status": _s,
                 "exit_code": None,
@@ -312,8 +312,8 @@ def test_build_poll_result_preflight_failure_shortcut(tmp_path: Path) -> None:
         issue=137,
         job_id=job_id,
         cluster=_nibi(),
-        scratch_dir="/scratch/tjiral/eps/issue-137",
-        log_path="/scratch/tjiral/eps/issue-137/job.out",
+        scratch_dir="/scratch/your-cluster-user/wf/issue-137",
+        log_path="/scratch/your-cluster-user/wf/issue-137/job.out",
         # SLURM may still report RUNNING for a moment before reaping.
         state_querier=lambda *, robot_alias, job_id: {"status": "RUNNING", "exit_code": None},
         rsyncer=lambda **_: None,
@@ -334,8 +334,8 @@ def test_build_poll_result_missing_status_json_treats_as_stalled(tmp_path: Path)
         issue=137,
         job_id=job_id,
         cluster=_nibi(),
-        scratch_dir="/scratch/tjiral/eps/issue-137",
-        log_path="/scratch/tjiral/eps/issue-137/job.out",
+        scratch_dir="/scratch/your-cluster-user/wf/issue-137",
+        log_path="/scratch/your-cluster-user/wf/issue-137/job.out",
         state_querier=lambda *, robot_alias, job_id: {"status": "RUNNING", "exit_code": None},
         rsyncer=lambda **_: None,
         now_fn=lambda: now.timestamp(),
@@ -376,8 +376,8 @@ def test_monitor_posts_cluster_poll_on_first_observation(tmp_path: Path) -> None
         issue=137,
         job_id=job_id,
         cluster=_nibi(),
-        scratch_dir="/scratch/tjiral/eps/issue-137",
-        log_path="/scratch/tjiral/eps/issue-137/job.out",
+        scratch_dir="/scratch/your-cluster-user/wf/issue-137",
+        log_path="/scratch/your-cluster-user/wf/issue-137/job.out",
         state_querier=lambda *, robot_alias, job_id: {"status": "RUNNING", "exit_code": None},
         rsyncer=lambda **_: None,
         now_fn=lambda: now.timestamp(),
@@ -427,8 +427,8 @@ def test_monitor_dedups_cluster_poll_when_status_unchanged(tmp_path: Path) -> No
         issue=137,
         job_id=job_id,
         cluster=_nibi(),
-        scratch_dir="/scratch/tjiral/eps/issue-137",
-        log_path="/scratch/tjiral/eps/issue-137/job.out",
+        scratch_dir="/scratch/your-cluster-user/wf/issue-137",
+        log_path="/scratch/your-cluster-user/wf/issue-137/job.out",
         state_querier=lambda *, robot_alias, job_id: {"status": "RUNNING", "exit_code": None},
         rsyncer=lambda **_: None,
         now_fn=lambda: now.timestamp(),
@@ -462,8 +462,8 @@ def test_monitor_posts_cluster_terminal_first_time_on_completed(tmp_path: Path) 
         issue=137,
         job_id=job_id,
         cluster=_nibi(),
-        scratch_dir="/scratch/tjiral/eps/issue-137",
-        log_path="/scratch/tjiral/eps/issue-137/job.out",
+        scratch_dir="/scratch/your-cluster-user/wf/issue-137",
+        log_path="/scratch/your-cluster-user/wf/issue-137/job.out",
         state_querier=lambda *, robot_alias, job_id: {
             "status": "COMPLETED",
             "exit_code": "0:0",
@@ -514,8 +514,8 @@ def test_monitor_does_not_double_post_cluster_terminal(tmp_path: Path) -> None:
         issue=137,
         job_id=job_id,
         cluster=_nibi(),
-        scratch_dir="/scratch/tjiral/eps/issue-137",
-        log_path="/scratch/tjiral/eps/issue-137/job.out",
+        scratch_dir="/scratch/your-cluster-user/wf/issue-137",
+        log_path="/scratch/your-cluster-user/wf/issue-137/job.out",
         state_querier=lambda *, robot_alias, job_id: {
             "status": "COMPLETED",
             "exit_code": "0:0",
@@ -556,8 +556,8 @@ def test_monitor_reads_persisted_terminal_on_slurm_unknown(tmp_path: Path) -> No
         issue=137,
         job_id=job_id,
         cluster=_nibi(),
-        scratch_dir="/scratch/tjiral/eps/issue-137",
-        log_path="/scratch/tjiral/eps/issue-137/job.out",
+        scratch_dir="/scratch/your-cluster-user/wf/issue-137",
+        log_path="/scratch/your-cluster-user/wf/issue-137/job.out",
         state_querier=lambda *, robot_alias, job_id: {"status": "UNKNOWN", "exit_code": None},
         rsyncer=lambda **_: None,
         now_fn=lambda: now.timestamp(),
@@ -603,8 +603,8 @@ def test_monitor_filters_events_by_job_id(tmp_path: Path) -> None:
         issue=137,
         job_id=job_id,
         cluster=_nibi(),
-        scratch_dir="/scratch/tjiral/eps/issue-137",
-        log_path="/scratch/tjiral/eps/issue-137/job.out",
+        scratch_dir="/scratch/your-cluster-user/wf/issue-137",
+        log_path="/scratch/your-cluster-user/wf/issue-137/job.out",
         state_querier=lambda *, robot_alias, job_id: {"status": "RUNNING", "exit_code": None},
         rsyncer=lambda **_: None,
         now_fn=lambda: now.timestamp(),
@@ -645,8 +645,8 @@ def test_monitor_posts_cluster_poll_again_on_phase_transition(tmp_path: Path) ->
         issue=137,
         job_id=job_id,
         cluster=_nibi(),
-        scratch_dir="/scratch/tjiral/eps/issue-137",
-        log_path="/scratch/tjiral/eps/issue-137/job.out",
+        scratch_dir="/scratch/your-cluster-user/wf/issue-137",
+        log_path="/scratch/your-cluster-user/wf/issue-137/job.out",
         state_querier=lambda *, robot_alias, job_id: {"status": "RUNNING", "exit_code": None},
         rsyncer=lambda **_: None,
         now_fn=lambda: now.timestamp(),
@@ -680,14 +680,14 @@ def test_fetch_started_evidence_returns_phase_and_tail(tmp_path: Path) -> None:
             job_id,
             status_json_body={"phase": "preflight-failed", "exit_code": "1"},
             job_out_lines=[
-                "[FAIL] secrets file /scratch/tjiral/eps/issue-535/secrets.env not found",
+                "[FAIL] secrets file /scratch/your-cluster-user/wf/issue-535/secrets.env not found",
                 "[phase=preflight-failed]",
             ],
         )
 
     evidence = fetch_started_evidence(
         robot_alias="robot-nibi",
-        scratch_dir="/scratch/tjiral/eps/issue-535",
+        scratch_dir="/scratch/your-cluster-user/wf/issue-535",
         job_id=job_id,
         rsyncer=seeding_rsync,
     )
@@ -704,7 +704,7 @@ def test_fetch_started_evidence_returns_none_when_no_artifacts(tmp_path: Path) -
     job_id = "9502"
     evidence = fetch_started_evidence(
         robot_alias="robot-nibi",
-        scratch_dir="/scratch/tjiral/eps/issue-999",
+        scratch_dir="/scratch/your-cluster-user/wf/issue-999",
         job_id=job_id,
         rsyncer=lambda **_kw: None,  # rsync "succeeded" but pulled nothing
     )
@@ -726,7 +726,7 @@ def test_fetch_started_evidence_job_out_alone_counts(tmp_path: Path) -> None:
 
     evidence = fetch_started_evidence(
         robot_alias="robot-nibi",
-        scratch_dir="/scratch/tjiral/eps/issue-998",
+        scratch_dir="/scratch/your-cluster-user/wf/issue-998",
         job_id=job_id,
         rsyncer=seeding_rsync,
     )
@@ -747,7 +747,7 @@ def test_fetch_started_evidence_clears_stale_local_cache(tmp_path: Path) -> None
     )
     evidence = fetch_started_evidence(
         robot_alias="robot-nibi",
-        scratch_dir="/scratch/tjiral/eps/issue-997",
+        scratch_dir="/scratch/your-cluster-user/wf/issue-997",
         job_id=job_id,
         rsyncer=lambda **_kw: None,  # transport failure / nothing pulled
     )
@@ -777,7 +777,7 @@ def test_fetch_started_evidence_stale_artifacts_gated_out(tmp_path: Path) -> Non
 
     evidence = fetch_started_evidence(
         robot_alias="robot-nibi",
-        scratch_dir="/scratch/tjiral/eps/issue-535",
+        scratch_dir="/scratch/your-cluster-user/wf/issue-535",
         job_id=job_id,
         rsyncer=seeding_rsync,
         min_artifact_ts=now,  # this attempt submitted NOW
@@ -801,7 +801,7 @@ def test_fetch_started_evidence_fresh_artifacts_pass_the_gate(tmp_path: Path) ->
 
     evidence = fetch_started_evidence(
         robot_alias="robot-nibi",
-        scratch_dir="/scratch/tjiral/eps/issue-535",
+        scratch_dir="/scratch/your-cluster-user/wf/issue-535",
         job_id=job_id,
         rsyncer=seeding_rsync,
         min_artifact_ts=now - 600,  # submitted 10 min ago; artifacts written now
@@ -832,7 +832,7 @@ def test_fetch_started_evidence_scrubs_tokens_from_tail(tmp_path: Path) -> None:
 
     evidence = fetch_started_evidence(
         robot_alias="robot-nibi",
-        scratch_dir="/scratch/tjiral/eps/issue-535",
+        scratch_dir="/scratch/your-cluster-user/wf/issue-535",
         job_id=job_id,
         rsyncer=seeding_rsync,
     )
@@ -890,8 +890,8 @@ def test_cluster_poll_marker_tail_is_scrubbed(tmp_path: Path) -> None:
         issue=137,
         job_id=job_id,
         cluster=_nibi(),
-        scratch_dir="/scratch/tjiral/eps/issue-137",
-        log_path="/scratch/tjiral/eps/issue-137/job.out",
+        scratch_dir="/scratch/your-cluster-user/wf/issue-137",
+        log_path="/scratch/your-cluster-user/wf/issue-137/job.out",
         state_querier=lambda *, robot_alias, job_id: {"status": "RUNNING", "exit_code": None},
         rsyncer=lambda **_: None,
         now_fn=lambda: now.timestamp(),
@@ -928,8 +928,8 @@ def test_monitor_ignores_prior_attempt_heartbeat_just_after_submit(tmp_path: Pat
         issue=137,
         job_id=job_id,
         cluster=_nibi(),
-        scratch_dir="/scratch/tjiral/eps/issue-137",
-        log_path="/scratch/tjiral/eps/issue-137/job.out",
+        scratch_dir="/scratch/your-cluster-user/wf/issue-137",
+        log_path="/scratch/your-cluster-user/wf/issue-137/job.out",
         state_querier=lambda *, robot_alias, job_id: {"status": "RUNNING", "exit_code": None},
         rsyncer=lambda **_: None,
         now_fn=lambda: now.timestamp(),
@@ -956,8 +956,8 @@ def test_monitor_still_stalls_long_after_submit_without_fresh_heartbeat(tmp_path
         issue=137,
         job_id=job_id,
         cluster=_nibi(),
-        scratch_dir="/scratch/tjiral/eps/issue-137",
-        log_path="/scratch/tjiral/eps/issue-137/job.out",
+        scratch_dir="/scratch/your-cluster-user/wf/issue-137",
+        log_path="/scratch/your-cluster-user/wf/issue-137/job.out",
         state_querier=lambda *, robot_alias, job_id: {"status": "RUNNING", "exit_code": None},
         rsyncer=lambda **_: None,
         now_fn=lambda: now.timestamp(),
@@ -985,8 +985,8 @@ def test_monitor_ignores_prior_attempt_preflight_marker(tmp_path: Path) -> None:
         issue=137,
         job_id=job_id,
         cluster=_nibi(),
-        scratch_dir="/scratch/tjiral/eps/issue-137",
-        log_path="/scratch/tjiral/eps/issue-137/job.out",
+        scratch_dir="/scratch/your-cluster-user/wf/issue-137",
+        log_path="/scratch/your-cluster-user/wf/issue-137/job.out",
         state_querier=lambda *, robot_alias, job_id: {"status": "RUNNING", "exit_code": None},
         rsyncer=lambda **_: None,
         now_fn=lambda: now.timestamp(),
@@ -1014,8 +1014,8 @@ def test_monitor_without_submitted_at_keeps_legacy_behavior(tmp_path: Path) -> N
         issue=137,
         job_id=job_id,
         cluster=_nibi(),
-        scratch_dir="/scratch/tjiral/eps/issue-137",
-        log_path="/scratch/tjiral/eps/issue-137/job.out",
+        scratch_dir="/scratch/your-cluster-user/wf/issue-137",
+        log_path="/scratch/your-cluster-user/wf/issue-137/job.out",
         state_querier=lambda *, robot_alias, job_id: {"status": "RUNNING", "exit_code": None},
         rsyncer=lambda **_: None,
         now_fn=lambda: now.timestamp(),

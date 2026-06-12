@@ -36,9 +36,9 @@ def test_gmail_address_redacted() -> None:
 
 
 def test_runpod_team_id_redacted() -> None:
-    out = redact("team_id=YOUR_RUNPOD_TEAM_ID")
+    out = redact("team_id=cm0000000000000000000000")
     assert "<team-id>" in out
-    assert "YOUR_RUNPOD_TEAM_ID" not in out
+    assert "cm0000000000000000000000" not in out
 
 
 def test_hf_token_redacted() -> None:
@@ -148,8 +148,8 @@ def test_full_fixture_redacted() -> None:
     # Pod IPs redacted regardless of whether they are still in the live
     # registry (both fixture IPs have long since left pods.conf — the
     # public-IPv4 backstop must catch them).
-    assert "203.0.113.15" not in out
-    assert "203.0.113.16" not in out
+    assert "45.32.10.15" not in out
+    assert "45.32.10.16" not in out
 
 
 def test_idempotent() -> None:

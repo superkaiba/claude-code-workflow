@@ -383,7 +383,7 @@ def test_render_create_argv_lora_golden() -> None:
     assert any("startup-script=" in a for a in argv), argv
     # Labels carry the audit prefix
     assert any("managed-by=eps" in a for a in argv), argv
-    assert any("eps-issue=137" in a for a in argv), argv
+    assert any("wf-issue=137" in a for a in argv), argv
     # No shell-escape leak from the startup script body
     assert "rm -rf" not in joined
     # SECURITY (round-2, task #535): token VALUES never appear on the
@@ -482,7 +482,7 @@ def test_render_create_argv_metadata_comma_value_uses_alternate_delimiter(monkey
     assert delim != ","
     pairs = arg[len(f"--metadata=^{delim}^") :].split(delim)
     assert "EPM_PERSIST_ADAPTER_SUBFOLDER=router_acceptance/issue-137,gcp" in pairs
-    assert f"eps-issue={_spec().issue}" in pairs
+    assert f"wf-issue={_spec().issue}" in pairs
 
 
 def test_render_create_argv_metadata_comma_free_keeps_plain_join(monkeypatch) -> None:
@@ -1555,7 +1555,7 @@ def test_reconnect_recovers_attempt_id_from_label_and_launch_threads_it(
                 ),
                 "labels": {
                     "managed-by": "eps",
-                    "eps-issue": "137",
+                    "wf-issue": "137",
                     "eps-attempt": "att-orig-recovered",
                     "eps-intent": "lora-7b",
                 },

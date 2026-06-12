@@ -355,7 +355,7 @@ def test_run_live_lane_launch_crash_runs_cleanup_and_warns_live_infra() -> None:
     # The message must scream live-infra-possible + carry the manual
     # verification commands for BOTH lanes.
     assert "MAY BE LIVE" in msg
-    assert "gcloud compute instances list --filter=labels.eps-issue=403" in msg
+    assert "gcloud compute instances list --filter=labels.wf-issue=403" in msg
     assert "squeue --name wf-issue-403" in msg
     # Cleanup finalize WAS attempted (with the always-teardown flag).
     finalize_calls = [a for a in rec.argv_list if "finalize" in a]
@@ -393,7 +393,7 @@ def test_run_live_lane_launch_json_parse_failure_runs_cleanup_and_warns() -> Non
     msg = str(excinfo.value)
     assert "no parseable JSON" in msg
     assert "MAY BE LIVE" in msg
-    assert "gcloud compute instances list --filter=labels.eps-issue=405" in msg
+    assert "gcloud compute instances list --filter=labels.wf-issue=405" in msg
     finalize_calls = [a for a in rec.argv_list if "finalize" in a]
     assert finalize_calls, "JSON-parse-failure path did NOT attempt cleanup finalize"
 
@@ -637,12 +637,12 @@ def test_run_live_lane_sidecar_write_error_surfaces_recovery_record(caplog) -> N
     assert "gcp-4242" in msg, "ERROR log missing the job id (handle identity)"
     assert "wf-issue-410" in msg, "ERROR log missing the instance/job name"
     assert "/scratch/wf-issue-410" in msg, "ERROR log missing the serialized handle fields"
-    assert "gcloud compute instances list --filter=labels.eps-issue=410" in msg
+    assert "gcloud compute instances list --filter=labels.wf-issue=410" in msg
     # (b) The finalize rc=2 raise carries the live-infra warning -- the
     # lane must NOT look clean.
     raise_msg = str(excinfo.value)
     assert "MAY BE LIVE" in raise_msg
-    assert "gcloud compute instances list --filter=labels.eps-issue=410" in raise_msg
+    assert "gcloud compute instances list --filter=labels.wf-issue=410" in raise_msg
     # The poll + finalize both actually ran (launch, poll, finalize,
     # plus the best-effort cleanup finalize from the except branch).
     finalize_calls = [a for a in rec.argv_list if "finalize" in a]
@@ -1007,7 +1007,7 @@ def test_check_clean_teardown_gcp_threads_launch_project() -> None:
     assert res.passed
     assert seen["project"] == "your-gcp-project"
     assert seen["config"] == "your-gcloud-config"
-    assert seen["filter"] == "labels.eps-issue=805"
+    assert seen["filter"] == "labels.wf-issue=805"
 
 
 def test_check_clean_teardown_slurm_uses_canonical_job_name() -> None:

@@ -66,7 +66,7 @@ If you find yourself opening one of these, stop and re-orient: you are writing m
 
 ## What you write
 
-A markdown file at `docs/methodology/issue_<N>.md` with this skeleton — match the register and density of the exemplar gists at <https://gist.github.com/your-github-username/b601d6c4323adc6903b73cacf4cbb6b6> (#489) and <https://gist.github.com/your-github-username/973fdabe23c337b972d2cc62c4c010a4> (#514):
+A markdown file at `docs/methodology/issue_<N>.md` with this skeleton — match the register and density of the exemplar gists at <https://gist.github.com/your-github-username/<gist-id>> (#489) and <https://gist.github.com/your-github-username/<gist-id>> (#514):
 
 ```markdown
 # Task #<N> — Methodology, hyperparameters, and worked examples

@@ -241,7 +241,7 @@ unresumable (incident: task #537, 2026-06-10). For such runs:
      `TURNER_EDS_PASSWORD` presence while the plan-named
      `data/issue404/turner_bad_medical_advice.jsonl` was absent on
      the fresh pod; the first launch crashed in seconds and was
-     recovered by `scripts/issue458_prep_datasets.py --cells
+     recovered by `scripts/issue458_prep_datasets.py --cells <!-- lint: historical-ref -->
      turner_bad_medical --no-generate` + relaunch.
    - **Count actuals on the pod.** Run one `ssh_execute ls -1
      <pattern> | wc -l` against the pod's local-disk path. Get a

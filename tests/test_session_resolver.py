@@ -33,7 +33,7 @@ import session_resolver  # noqa: E402
 
 
 def test_derive_project_slug_repo_root():
-    cwd = "<project-root>"
+    cwd = "/home/your-username/your-project"
     assert (
         session_resolver.derive_project_slug(cwd)
         == "-home-your-username-your-project"
@@ -45,7 +45,7 @@ def test_derive_project_slug_worktree_with_dotclaude_path():
     # because the ``.`` is non-alphanumeric. Confirmed empirically against
     # the live ~/.claude/projects/ tree (issue-459 worktree has slug
     # ``...space--claude-worktrees-issue-459``).
-    cwd = "<project-root>/.claude/worktrees/issue-459"
+    cwd = "/home/your-username/your-project/.claude/worktrees/issue-459"
     expected = "-home-your-username-your-project--claude-worktrees-issue-459"
     assert session_resolver.derive_project_slug(cwd) == expected
 
@@ -120,12 +120,12 @@ def test_extract_transcript_from_happy_log_none_when_missing():
 
 
 def test_is_eps_cwd_repo_root():
-    assert session_resolver.is_eps_cwd("<project-root>")
+    assert session_resolver.is_eps_cwd("/home/your-username/your-project")
 
 
 def test_is_eps_cwd_worktree():
     # Worktrees under .claude/worktrees count as project — they share the project.
-    cwd = "<project-root>/.claude/worktrees/issue-459"
+    cwd = "/home/your-username/your-project/.claude/worktrees/issue-459"
     assert session_resolver.is_eps_cwd(cwd)
 
 
@@ -260,7 +260,7 @@ def test_backfill_writes_manual_entry_for_unmapped_eps_session(monkeypatch, tmp_
             return session_resolver.ResolveResult(
                 200,
                 201,
-                "<project-root>",
+                "/home/your-username/your-project",
                 "/t.jsonl",
                 999,
             )
@@ -298,7 +298,7 @@ def test_backfill_dry_run_writes_nothing(monkeypatch, tmp_path):
         session_resolver,
         "resolve",
         lambda pid: session_resolver.ResolveResult(
-            pid, 2, "<project-root>", "/t.jsonl", 42
+            pid, 2, "/home/your-username/your-project", "/t.jsonl", 42
         ),
     )
 

@@ -427,7 +427,7 @@ def _spec_for_lane(spec: RunSpec, kind: BackendKind) -> RunSpec:
     overrides or auto-chain lane attempts, so the backend's defensive
     nibi default silently submitted EVERY lane to Nibi — live finding,
     issue 535: the 'mila' lane's sbatch landed on Nibi (job 15876369,
-    account ``rrg-bengioy-ad_gpu``, ``/scratch/tjiral`` scratch) while
+    account ``your-slurm-account``, ``/scratch/your-cluster-user`` scratch) while
     every lane-level label (routing marker, HF subfolder, figure) said
     mila, and the lane PASSed its checklist vacuously. Non-cluster lanes
     (gcp / runpod) pass through unchanged; a contradicting explicit

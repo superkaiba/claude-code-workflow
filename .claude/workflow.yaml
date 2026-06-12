@@ -2078,9 +2078,9 @@ markers:
         `cluster:     <nibi|fir>
          job_id:      <numeric>
          job_name:    <wf-issue-<N>[-<plan_hash>]>
-         scratch_dir: <$SCRATCH/eps/issue-<N>>
-         log_path:    <$SCRATCH/eps/issue-<N>/job.out>
-         account:     <rrg-bengioy-ad_gpu>
+         scratch_dir: <$SCRATCH/wf/issue-<N>>
+         log_path:    <$SCRATCH/wf/issue-<N>/job.out>
+         account:     <your-slurm-account>
          gpus:        <N>
          time_budget_hours: <H>`
       Posted INSTEAD of `epm:run-launched` on the cluster path; the

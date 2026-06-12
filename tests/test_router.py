@@ -208,8 +208,8 @@ class _FreeLaneBackend(_BaseBackend):
             cluster=self._kind,
             job_id=jid,
             pod_name=f"wf-issue-{spec.issue}",
-            scratch_dir=f"/scratch/eps/issue-{spec.issue}",
-            log_path=f"/scratch/eps/issue-{spec.issue}/job.out",
+            scratch_dir=f"/scratch/wf/issue-{spec.issue}",
+            log_path=f"/scratch/wf/issue-{spec.issue}/job.out",
             extra={"issue": spec.issue},
         )
 
@@ -995,8 +995,8 @@ def test_unknown_submitted_recovery_via_reconnect(lease_store):
         cluster="nibi",
         job_id="recovered-7777",
         pod_name=f"wf-issue-{issue}",
-        scratch_dir=f"/scratch/eps/issue-{issue}",
-        log_path=f"/scratch/eps/issue-{issue}/job.out",
+        scratch_dir=f"/scratch/wf/issue-{issue}",
+        log_path=f"/scratch/wf/issue-{issue}/job.out",
         extra={"issue": issue},
     )
 
@@ -1400,8 +1400,8 @@ def test_concurrent_route_on_same_issue_does_not_double_submit(lease_store):
             cluster="nibi",
             job_id=str(nibi._next_job_id - 1),
             pod_name=f"wf-issue-{spec.issue}",
-            scratch_dir=f"/scratch/eps/issue-{spec.issue}",
-            log_path=f"/scratch/eps/issue-{spec.issue}/job.out",
+            scratch_dir=f"/scratch/wf/issue-{spec.issue}",
+            log_path=f"/scratch/wf/issue-{spec.issue}/job.out",
             extra={"issue": spec.issue},
         )
 
@@ -1948,8 +1948,8 @@ def test_reconnect_accepts_production_cluster_handle_shape(lease_store):
         cluster="nibi",
         job_id="15931234",
         pod_name=f"wf-issue-{issue}",
-        scratch_dir=f"/scratch/eps/issue-{issue}",
-        log_path=f"/scratch/eps/issue-{issue}/job.out",
+        scratch_dir=f"/scratch/wf/issue-{issue}",
+        log_path=f"/scratch/wf/issue-{issue}/job.out",
         extra={"issue": issue, "account": "rrg-test_gpu"},
     )
 
@@ -1985,8 +1985,8 @@ def test_reconnect_cluster_handle_for_wrong_cluster_is_ignored(lease_store):
         cluster="fir",  # WRONG cluster for the nibi lane
         job_id="999999",
         pod_name="wf-issue-137",
-        scratch_dir="/scratch/eps/issue-137",
-        log_path="/scratch/eps/issue-137/job.out",
+        scratch_dir="/scratch/wf/issue-137",
+        log_path="/scratch/wf/issue-137/job.out",
         extra={"issue": 137},
     )
 
@@ -2311,8 +2311,8 @@ def test_explicit_lane_reconnect_does_not_call_prepare(lease_store):
         cluster="nibi",
         job_id="424242",
         pod_name="wf-issue-137",
-        scratch_dir="/scratch/eps/issue-137",
-        log_path="/scratch/eps/issue-137/job.out",
+        scratch_dir="/scratch/wf/issue-137",
+        log_path="/scratch/wf/issue-137/job.out",
         extra={"issue": 137},
     )
     result = route(
@@ -2336,8 +2336,8 @@ def test_auto_reconnect_does_not_call_prepare(lease_store):
         cluster="nibi",
         job_id="424243",
         pod_name="wf-issue-137",
-        scratch_dir="/scratch/eps/issue-137",
-        log_path="/scratch/eps/issue-137/job.out",
+        scratch_dir="/scratch/wf/issue-137",
+        log_path="/scratch/wf/issue-137/job.out",
         extra={"issue": 137},
     )
     result = route(

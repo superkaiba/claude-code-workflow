@@ -109,7 +109,7 @@ class ClusterConfig:
     * ``name`` — the canonical cluster name (``nibi``, ``fir``, ``mila``).
       Used as the dict key in :data:`CLUSTER_CONFIGS` AND as the
       ``BackendKind`` alias the selector resolves to a backend instance.
-    * ``account`` — SLURM ``--account`` value. ``rrg-bengioy-ad_gpu``
+    * ``account`` — SLURM ``--account`` value. ``your-slurm-account``
       for the DRAC robot. **Optional** (``None``) — Mila does not require
       ``--account`` on most partitions; the renderer omits the
       ``#SBATCH --account=`` line when this is ``None``.
@@ -231,18 +231,18 @@ class ClusterConfig:
 CLUSTER_CONFIGS: dict[str, ClusterConfig] = {
     "nibi": ClusterConfig(
         name="nibi",
-        account="rrg-bengioy-ad_gpu",
+        account="your-slurm-account",
         robot_alias="robot-nibi",
         max_gpus_per_node=8,
-        scratch_path="/scratch/tjiral",  # DRAC $SCRATCH = /scratch/<user>; verified by probe
+        scratch_path="/scratch/your-cluster-user",  # DRAC $SCRATCH = /scratch/<user>; verified by probe
         timezone="America/Toronto",  # DRAC robot reports cluster-local Eastern time
     ),
     "fir": ClusterConfig(
         name="fir",
-        account="rrg-bengioy-ad_gpu",
+        account="your-slurm-account",
         robot_alias="robot-fir",
         max_gpus_per_node=4,
-        scratch_path="/scratch/tjiral",  # DRAC $SCRATCH = /scratch/<user>; verified by probe
+        scratch_path="/scratch/your-cluster-user",  # DRAC $SCRATCH = /scratch/<user>; verified by probe
         timezone="America/Toronto",  # DRAC robot reports cluster-local Eastern time
         available=False,
     ),
@@ -1101,7 +1101,7 @@ def render_sbatch(
 
     Lines the test pins:
 
-    * ``#SBATCH --account=rrg-bengioy-ad_gpu``
+    * ``#SBATCH --account=your-slurm-account``
     * ``#SBATCH --gpus-per-node=<N>``
     * ``#SBATCH --output=<scratch_dir>/job.out``
     * ``#SBATCH --time=<HH:MM:SS>``
@@ -2282,7 +2282,7 @@ class SlurmBackend(ComputeBackend):
             return get_cluster_config(spec.cluster)
         # NO silent default. The old "pick Nibi" fallback silently
         # submitted the 'mila' lane's sbatch to Nibi (issue 535 live
-        # finding: job 15876369 ran on Nibi under rrg-bengioy-ad_gpu
+        # finding: job 15876369 ran on Nibi under your-slurm-account
         # while every lane-level label said mila, and the lane PASSed
         # its checklist vacuously). The router threads the lane kind
         # into ``spec.cluster`` via ``_spec_for_lane``; a spec arriving

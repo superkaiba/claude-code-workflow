@@ -88,7 +88,7 @@ class RunSpec:
       ``4`` for a 4xH100 full-FT). ``None`` = use the intent default.
     * ``time_budget_hours``: wall-clock budget (``--time`` on SLURM,
       informational on RunPod). ``None`` = backend default.
-    * ``account``: SLURM account string (``rrg-bengioy-ad_gpu`` for the
+    * ``account``: SLURM account string (``your-slurm-account`` for the
       DRAC robot). Ignored by RunPod.
     * ``hydra_args``: Hydra overrides for the experiment entrypoint
       (e.g. ``["condition=c1_evil_wrong_em", "seed=42"]``). Backends
@@ -178,10 +178,10 @@ class RunHandle:
       a string so the orchestrator's marker post is uniform.
     * ``pod_name``: canonical ``pod-<N>`` (RunPod) or job name keyed by
       ``issue + plan hash`` (SLURM). The marker schema reads this.
-    * ``scratch_dir``: backend-side working directory. ``$SCRATCH/eps/
+    * ``scratch_dir``: backend-side working directory. ``$SCRATCH/wf/
       issue-<N>`` on SLURM; ``/workspace/`` on RunPod.
     * ``log_path``: where the job's stdout/stderr lands on the backend.
-      ``/workspace/logs/issue-<N>.log`` on RunPod; ``$SCRATCH/eps/issue
+      ``/workspace/logs/issue-<N>.log`` on RunPod; ``$SCRATCH/wf/issue
       -<N>/job.out`` on SLURM (SLURM ``--output`` target).
     * ``extra``: backend-private state (e.g. RunPod ``ssh_host``,
       ``ssh_port``; SLURM ``account``, ``partition``).
