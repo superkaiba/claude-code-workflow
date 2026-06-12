@@ -12,7 +12,7 @@ review ensemble, and a multi-cloud compute router.
 This is the second extraction (the first was May 2026). It reflects the
 workflow as actually used: file-based task state (no GitHub-issue control
 plane), Happy Coder + tmux session orchestration, autonomous sessions with a
-watchdog cron, campaign-level orchestration, and ~45 control-plane scripts.
+watchdog cron, campaign-level orchestration, and ~57 control-plane scripts.
 
 ## What's inside
 
@@ -31,20 +31,24 @@ watchdog cron, campaign-level orchestration, and ~45 control-plane scripts.
                  # weekly, experiment-runner, auto-experiment-runner,
                  # experiment-proposer, independent-reviewer, cleanup,
                  # refactor, deep-clean, codebase-debugger, mentor-update-slides
-  rules/         # 11 rules: workflow-fix-on-bug, agents-vs-skills,
+  rules/         # 17 rules: workflow-fix-on-bug, agents-vs-skills,
                  # research-project-structure, code-style, gotchas,
-                 # upload-policy, arxiv-mcp + 4 domain-specific examples
+                 # upload-policy, artifact-reuse, replication-fidelity,
+                 # data-realism, on-policy-completions, background-automation,
+                 # pod-config, arxiv-mcp + 4 domain-specific examples
+  hooks/         # PreToolUse guard scripts (log-dump guard) wired via
+                 # settings.json
   workflow.yaml  # the state machine: statuses, marker schemas, gates,
                  # halt criteria, ensemble-review policy
   settings.json  # permissions + hooks (paths use $CLAUDE_PROJECT_DIR)
   mcp.json       # arxiv MCP servers
 CLAUDE.md        # top-level project instructions Claude Code loads every session
-scripts/         # ~55 control-plane scripts (see below) + 6 placeholder
+scripts/         # ~57 control-plane scripts (see below) + 6 placeholder
                  # experiment entrypoints (train.py, eval.py, ... — stubs you
                  # replace with your own pipelines)
 src/research_workflow/   # the task-workflow library + compute-backend router
 tasks/           # seeded empty task tree (REGISTRY.json) — ready for task.py new
-tests/           # 41 test files pinning workflow invariants
+tests/           # 49 test files pinning workflow invariants
 ```
 
 ## Core ideas
@@ -68,7 +72,8 @@ GitHub-issue dependency; the git history is the audit log.
 
 ### 2. Adversarial review at every stage
 
-- **Plans** (`/adversarial-planner`): planner → fact-checker → critic
+- **Plans** (`/adversarial-planner`): planner → `scripts/verify_plan.py`
+  (mechanical pre-pass gate on plan shape) → fact-checker → critic
   ensemble ∥ consistency-checker → revise → user approval. Every load-bearing
   hyperparameter needs a recorded `Source:`; measurement validity is checked
   per dependent variable.
@@ -110,10 +115,14 @@ up in the mobile app.
   `AskUserQuestion`.
 - `scripts/autonomous_session_watch.py` (cron, every 10 min) — crash-recovery
   respawn, pod-safety reconciliation, stalled-session detection,
-  zombie-wrapper reaping, and auto-stop of sessions whose task is parked or
-  terminal.
-- `/issue-tick` + `/campaign-tick` — lightweight 20-min backstop crons that
-  re-drive a stale session without reloading the full skill.
+  zombie-wrapper reaping, auto-stop of sessions whose task is parked or
+  terminal, plus a gate-push pass (phone notification on gate-park/blocked
+  transitions via a pluggable notify script, transition-deduped) and a
+  tick-runaway force-stop.
+- `/issue-tick` + `/campaign-tick` — lightweight 45-min backstop crons that
+  re-drive a stale session without reloading the full skill; a healthy tick
+  is one `scripts/tick_triage.py` call (pure Python), and the 10-min watcher
+  carries fast detection.
 - `scripts/session_progress_report.py` / `session_summarize.py` /
   `session_resolver.py` — phone-facing titles and roll-up summaries.
 
@@ -195,7 +204,8 @@ tests (`tests/test_no_*`), hooks, or always-on rules.
   `run_trait_transfer.py` are placeholders the agents/skills reference —
   wire up your own pipelines there.
 - **Tests** pin the workflow's invariants and pass out of the box
-  (`uv run pytest`: 1708 passed, 10 skipped — the skips are
-  repo-state-dependent tests that resolve live task ids). None need live
-  credentials. `scripts/workflow_lint.py` also passes on the template
-  itself.
+  (`uv run pytest`: 2042 passed, 20 skipped — the skips are
+  repo-state-dependent tests that resolve live task ids, plus tests of the
+  source project's training pipeline, which is not part of the extraction).
+  None need live credentials. `scripts/workflow_lint.py` also passes on the
+  template itself.

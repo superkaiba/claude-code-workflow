@@ -505,7 +505,7 @@ def _default_gcloud_instances_list(
     a DIFFERENT project than the launcher targeted -- a fresh
     ``GcpConfig()`` (all-empty defaults) would issue a gcloud call
     with no ``--project`` / ``--configuration``, falling back to the
-    ambient ``CLOUDSDK_ACTIVE_CONFIG_NAME`` (which my-goat manipulates
+    ambient ``CLOUDSDK_ACTIVE_CONFIG_NAME`` (which sibling-project manipulates
     for personal use) and silently grepping the WRONG project. The
     GCP backend's invariant is explicit-project-per-call (see
     ``GcpConfig`` docstring); the verifier MUST match it.
@@ -1753,7 +1753,7 @@ def negative_cancel_race() -> dict[str, Any]:
 def negative_duplicate_cron_tick() -> dict[str, Any]:
     """Run finalize TWICE on the same sidecar; assert idempotent.
 
-    The orchestrator's bg-Bash poll loop AND the 20-min ``issue-tick``
+    The orchestrator's bg-Bash poll loop AND the 45-min ``issue-tick``
     backstop cron can both fire ``dispatch_issue.py finalize`` for the
     same handle. The second tick MUST NOT crash. Since the Mn4.3
     stale-sidecar fix, the FIRST successful finalize renames the

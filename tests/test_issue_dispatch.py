@@ -143,6 +143,7 @@ def test_runpod_poll_delegates_to_poll_pipeline_and_returns_typed_pollresult(
             phase_log_mtime_sec_ago: int = 100
             shard_log_mtime_sec_ago: int = 200
             gpu_util: str = "95"
+            next_interval: int = 540
 
         return _PR()
 
@@ -287,7 +288,7 @@ def _gcp_handle(
         job_id="111",
         pod_name=f"wf-issue-{issue}",
         scratch_dir=workload,
-        log_path=f"{workload}/logs/issue-{issue}.log",
+        log_path=f"{vm_scratch_dir}/logs/issue-{issue}.log",
         extra={
             "issue": issue,
             "zone": cfg.primary_zone,
@@ -381,7 +382,7 @@ def test_gcp_fetch_results_skips_when_handle_missing_issue(tmp_path) -> None:
         job_id="111",
         pod_name="wf-issue-0",
         scratch_dir=str(tmp_path / "wf-issue-0"),
-        log_path=str(tmp_path / "wf-issue-0/logs/issue-0.log"),
+        log_path=str(tmp_path / "logs/issue-0.log"),
         extra={"zone": "us-central1-a"},  # no 'issue' field
     )
     backend.fetch_results(handle)
@@ -404,7 +405,7 @@ def test_gcp_fetch_results_skips_when_handle_missing_attempt_id(tmp_path) -> Non
         job_id="111",
         pod_name="wf-issue-137",
         scratch_dir=str(tmp_path / "wf-issue-137"),
-        log_path=str(tmp_path / "wf-issue-137/logs/issue-137.log"),
+        log_path=str(tmp_path / "logs/issue-137.log"),
         extra={"issue": 137, "zone": "us-central1-a"},  # no attempt_id
     )
     backend.fetch_results(handle)
@@ -809,6 +810,96 @@ def test_dispatch_for_issue_does_not_overwrite_backend_populated_declaration(
     assert decl["sentinel_path"] == "/backend/sentinel.json"
 
 
+def _real_slurm_backend(tmp_path, *, job_id: str = "7777"):
+    """Real :class:`SlurmBackend` with every external seam faked (no network)."""
+    from research_workflow.backends.slurm import SlurmBackend
+
+    (tmp_path / "pyproject.toml").write_text("")
+    return SlurmBackend(
+        src_root=tmp_path,
+        submitter=lambda *, robot_alias, sbatch_script: job_id,
+        rsyncer=lambda **_kw: None,
+        marker_poster=lambda **_kw: None,
+        secrets_pusher=lambda **_kw: None,
+        runtime_clearer=lambda **_kw: None,
+    )
+
+
+def test_slurm_backend_declaration_not_overwritten_by_caller(tmp_path, tmp_lease_store) -> None:
+    """#598 SLURM variant of the key-absent caller-threading guard: the
+    REAL ``SlurmBackend.launch`` now populates the declaration, so a
+    caller-passed ``expected_artifacts`` dict must NOT overwrite it."""
+    nibi = _real_slurm_backend(tmp_path, job_id="7777")
+    spec = RunSpec(
+        issue=206,
+        intent="lora-7b",
+        backend="nibi",
+        cluster="nibi",
+        hydra_args=("condition=c1_evil_wrong_em",),
+    )
+    outcome = dispatch_for_issue(
+        spec,
+        runpod_backend=_MockBackend(kind="runpod"),
+        free_backends={"nibi": nibi},
+        is_started=lambda _b, _h: True,
+        lease_store=tmp_lease_store,
+        write_sidecar=False,
+        expected_artifacts={"issue": 206, "sentinel_path": "/caller/should-lose.json"},
+    )
+    decl = outcome.result.handle.extra[EXPECTED_ARTIFACTS_HANDLE_KEY]
+    # The launch-built declaration wins: local post-rsync sentinel path
+    # under src_root, attempt-namespaced by the SLURM job id.
+    assert decl["sentinel_path"] == str(
+        tmp_path / "eval_results/issue_206/slurm-7777/.completion-sentinel.json"
+    )
+    assert decl["hf_data_paths"] == ["issue206_slurm-7777/raw_completions/"]
+
+
+def test_declaration_survives_sidecar_roundtrip(tmp_path, tmp_lease_store) -> None:
+    """#598: the launch-time declaration round-trips through the sidecar
+    JSON (``serialize_handle`` → ``write_handle_sidecar`` →
+    ``read_handle_sidecar``) and reconstructs to an identical
+    :class:`ExpectedArtifacts` (lists tuple-coerced on read) — the
+    finalize CLI consumes exactly this recovered form."""
+    from research_workflow.backends.artifacts import expected_artifacts_from_handle
+
+    nibi = _real_slurm_backend(tmp_path, job_id="7777")
+    spec = RunSpec(
+        issue=207,
+        intent="lora-7b",
+        backend="nibi",
+        cluster="nibi",
+        hydra_args=("condition=c1_evil_wrong_em",),
+    )
+    sidecar = tmp_path / "issue-207-handle.json"
+    outcome = dispatch_for_issue(
+        spec,
+        runpod_backend=_MockBackend(kind="runpod"),
+        free_backends={"nibi": nibi},
+        is_started=lambda _b, _h: True,
+        lease_store=tmp_lease_store,
+        handle_sidecar_path=sidecar,
+    )
+    handle = outcome.result.handle
+    assert sidecar.exists()
+    # Round-trip the exact bytes the bg poller / finalize CLI will read.
+    payload = serialize_handle(handle)
+    assert (
+        payload["extra"][EXPECTED_ARTIFACTS_HANDLE_KEY]
+        == handle.extra[EXPECTED_ARTIFACTS_HANDLE_KEY]
+    )
+    recovered = read_handle_sidecar(sidecar)
+    expected = expected_artifacts_from_handle(recovered)
+    assert expected is not None
+    assert expected == expected_artifacts_from_handle(handle)
+    assert expected.issue == 207
+    assert expected.sentinel_path == str(
+        tmp_path / "eval_results/issue_207/slurm-7777/.completion-sentinel.json"
+    )
+    assert expected.hf_data_paths == ("issue207_slurm-7777/raw_completions/",)
+    assert expected.git_paths == ("eval_results/issue_207/", "figures/issue_207/")
+
+
 def test_dispatch_for_issue_raises_router_terminal_for_caller_translation(
     tmp_lease_store, fast_clock
 ) -> None:
@@ -926,7 +1017,7 @@ def test_handle_sidecar_round_trips_via_json(tmp_path) -> None:
         job_id="gce-1234",
         pod_name="wf-issue-300",
         scratch_dir="/workspace/wf-issue-300",
-        log_path="/workspace/wf-issue-300/logs/issue-300.log",
+        log_path="/workspace/logs/issue-300.log",
         extra={
             "issue": 300,
             "zone": "us-central1-a",
@@ -1037,6 +1128,7 @@ def test_backend_poll_script_produces_legacy_poll_pipeline_json_shape(
         phase_log_mtime_sec_ago: int = 5
         shard_log_mtime_sec_ago: int = 6
         gpu_util: str = "95"
+        next_interval: int = 540
 
     monkeypatch.setattr("scripts.poll_pipeline.poll_once", lambda **kw: _PR())
 
@@ -1067,6 +1159,7 @@ def test_backend_poll_script_produces_legacy_poll_pipeline_json_shape(
         "phase_log_mtime_sec_ago",
         "shard_log_mtime_sec_ago",
         "gpu_util",
+        "next_interval",
     }
     # Values were correctly threaded through.
     assert decoded["status"] == "done"

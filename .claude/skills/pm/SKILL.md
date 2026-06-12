@@ -36,6 +36,8 @@ The user runs **multiple parallel Happy sessions** on the local VM:
 - **N per-experiment sessions** — one per active task. Each
   **autonomously self-drives** `/issue <N>` (where `N` is task number in the
   task workflow) through the lifecycle. You SPAWN them on the user's go-ahead
+  (experiments; ripe `kind: infra`/`batch` tasks auto-dispatch with NO
+  go-ahead per the standing rule — operating loop step 4)
   via `scripts/spawn_session.py spawn-issue --issue N --auto`. You do NOT
   drive `/issue` from the PM session.
 
@@ -87,12 +89,16 @@ flow. The PM's job is dispatch, not execution.
       auto/manual from the `followup-auto` / `followup-manual` tag).
    3. **Awaiting promotion (<count>)** — `### Most recent` (top 5 by
       `status_arrival_ts`, `#N — <claim> (CONFIDENCE) — arrived
-      <YYYY-MM-DD>`), then `### By theme` — ALL of them, each
-      `#N — <one-line finding> (CONFIDENCE)` (the clean-result title
-      IS the one-sentence claim + confidence tag; open the body via
-      `task.py view <N>` only when a title is not in claim form),
-      grouped into 3–6 research-theme categories derived from the
-      titles/goals (not a fixed taxonomy). Cross-reference: the
+      <YYYY-MM-DD>`), then `### Grouped` — ALL of them, produced by the
+      `/group-promotion-queue` skill (body-grounded, fine-grained,
+      organize-only): check its cache
+      (`.claude/cache/promotion-groups.md` header) against the current
+      sorted ID set; on match render the cached report; on mismatch
+      background-spawn its grouping subagent (skill step 3) and render
+      the stale cache marked `(stale — regenerating)` — or, with no
+      cache at all, a flat `#N — <one-line finding> (CONFIDENCE)` list
+      — folding the fresh grouped report in when the subagent returns.
+      Never block the STATUS pass on the subagent. Cross-reference: the
       `followups_running` tasks already have a clean-result, so this
       digest keeps them tagged "follow-up in flight" instead of
       dropping them.
@@ -101,10 +107,23 @@ flow. The PM's job is dispatch, not execution.
       then `### By theme` — ALL proposed tasks, one line each (title,
       else title + first clause of the frontmatter `goal:`; never page
       through full bodies). Long is intentional (~130 rows).
-4. Surface the top 1–3 candidate actions ranked by information gain per
+4. Run the standing **infra auto-dispatch pass** (research-pm.md
+   § Standing rule — infra auto-dispatch; user directive 2026-06-12):
+   from the queue report already in hand, enumerate ripe `proposed`
+   `kind: infra` (and pure code/ops `kind: batch`) tasks, consolidate
+   obvious duplicates (archive with a note marker naming the canonical
+   task), and auto-dispatch up to the cap of 3 concurrent infra
+   sessions via `spawn_session.py spawn-issue --issue <N> --auto` — no
+   user ask. Hold ONLY the tight park list (credentials off-machine,
+   outward-facing sends, spend/vendor decisions, re-kind items,
+   irreversible research-artifact deletion). Append an
+   `Infra auto-dispatch` block to the step-3 report: what was
+   dispatched this pass + held items with one-word reasons. The full
+   rule (ripeness, cap counting, park list) lives in research-pm.md.
+5. Surface the top 1–3 candidate actions ranked by information gain per
    compute-hour (use `/experiment-proposer` if the queue is non-trivial;
    otherwise just enumerate). Each candidate gets a one-line rationale.
-5. Wait for user direction. Possible directions:
+6. Wait for user direction. Possible directions:
    - **"work on #N" / "start #N" / "auto-run #N"** → spawn an autonomous issue
      session that self-drives `/issue <N>` to completion (see below).
    - **"propose more"** → invoke `/experiment-proposer` for a deeper rank.
@@ -112,8 +131,9 @@ flow. The PM's job is dispatch, not execution.
    - **"ideate"** → invoke `/ideation` (in this session, output goes to
      `docs/ideas/`).
    - **"status"** → re-run the triage scan (the full structured
-     per-status report, sections 1–4, same as the boot pass; "quick
-     status" = section 1 only).
+     per-status report, sections 1–4, same as the boot pass, plus the
+     step-4 infra auto-dispatch pass — it fires on EVERY status pass;
+     "quick status" = section 1 only).
 
 ### Fleet-burn recompute rule
 
@@ -180,15 +200,16 @@ multi-session model. If the experiment has a worktree at
 
 Per-issue sessions don't auto-wake on experiment completion by default,
 so a per-issue `/issue <N>` AUTO-ARMS its own backstop while a pod is
-alive: at run-launch (Step 6d.2) the orchestrator registers a 20-minute
-recurring re-invocation via `CronCreate(cron="*/20 * * * *",
+alive: at run-launch (Step 6d.2) the orchestrator registers a 45-minute
+recurring re-invocation via `CronCreate(cron="*/45 * * * *",
 prompt="/issue-tick <N>", durable=False)` (idempotent via `CronList`) and
 tears it down at terminal state. The cron fires the LIGHTWEIGHT
-`/issue-tick <N>` skill (~few hundred tokens) rather than the full
-`/issue <N>` (~44K tokens) so idle ticks stay cheap. The user does NOT
-need to type `/loop 20m /issue <N>` — that command remains the manual
-equivalent for ad-hoc use, but the per-issue flow no longer depends on
-it.
+`/issue-tick <N>` skill (one `tick_triage.py` Bash call on a healthy
+tick) rather than the full `/issue <N>` (~44K tokens) so idle ticks stay
+cheap; the 10-min pure-Python watcher carries fast detection. The user
+does NOT need to type `/loop 45m /issue <N>` — that command remains the
+manual equivalent for ad-hoc use, but the per-issue flow no longer
+depends on it.
 
 The PM session itself stays event-driven — you respond when the user
 messages you, otherwise idle. Do NOT `/loop` (or auto-arm a cron on) the

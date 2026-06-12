@@ -268,7 +268,7 @@ class _GcpBackendDouble(_BaseBackend):
             job_id="instance-fake-1",
             pod_name=f"wf-issue-{spec.issue}",
             scratch_dir=f"/workspace/wf-issue-{spec.issue}",
-            log_path=f"/workspace/wf-issue-{spec.issue}/logs/issue-{spec.issue}.log",
+            log_path=f"/workspace/logs/issue-{spec.issue}.log",
             extra={"issue": spec.issue, "zone": "us-central1-a"},
         )
 
@@ -1033,7 +1033,7 @@ def test_auto_reconnect_to_gcp_finds_existing_instance(lease_store):
         job_id="instance-existing",
         pod_name="wf-issue-137",
         scratch_dir="/workspace/wf-issue-137",
-        log_path="/workspace/wf-issue-137/logs/issue-137.log",
+        log_path="/workspace/logs/issue-137.log",
         extra={"issue": 137, "zone": "us-central1-a"},
     )
 
@@ -1339,7 +1339,7 @@ def test_concurrent_route_on_same_issue_does_not_double_submit(lease_store):
     """Two concurrent route() calls on the SAME issue submit EXACTLY ONCE.
 
     Simulates a duplicate-cron-tick race: a manual /issue invocation
-    and the 20-min issue-tick cron run in parallel. Without the flock
+    and the 45-min issue-tick cron run in parallel. Without the flock
     held across reconnect-check + launch + lease-write, both would
     decide "no live job" and both would submit (and both would escalate
     to GCP if anything timed out → double provision + colliding artifact
@@ -1905,7 +1905,7 @@ def test_reconnect_returning_wrong_backend_kind_is_ignored(lease_store):
         job_id="instance-foreign",
         pod_name="wf-issue-137",
         scratch_dir="/workspace/wf-issue-137",
-        log_path="/workspace/wf-issue-137/logs/issue-137.log",
+        log_path="/workspace/logs/issue-137.log",
         extra={"issue": 137},
     )
 

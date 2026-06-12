@@ -1,8 +1,9 @@
 """Crash-recovery + pod-safety + stalled-detector watcher for autonomous and
 interactive issue sessions (plus campaign sessions, task #586).
 
-Nine passes; eight run in this order (the CAMPAIGN pass — see item 9 —
-runs right after pass 2):
+Ten passes; items 1-8 run in that order, with the CAMPAIGN pass (item 9)
+right after pass 2 and the IDLE-UNMAPPED-SESSION pass (item 10) right after
+pass 7, before the GC pass:
 
 1. **VM disk-headroom pass.** Watch free space on the VM root filesystem —
    the host of every orchestrator session, the worktree ``.venv``s, the uv
@@ -170,9 +171,9 @@ runs right after pass 2):
    task is BY DEFINITION terminal, so the terminal-status GC would reset
    the miss counter every tick; they are reaped by their own
    live-session-keyed GC inside the session-reconcile pass. The
-   per-session ``zombie-wrapper-<sid>.json`` files are likewise out of its
-   per-issue sweep — reaped by the zombie pass's own live-session-keyed
-   GC.)
+   per-session ``zombie-wrapper-<sid>.json`` and ``idle-unmapped-<sid>.json``
+   files are likewise out of its per-issue sweep — reaped by their own
+   passes' live-session-keyed GCs.)
 9. **Campaign pass** (runs right after pass 2; task #586). Driven by
    ``campaign-<N>.json`` registry entries (written by ``spawn_session.py
    spawn-campaign``): respawn a dead campaign session whose task is ACTIVE
@@ -191,6 +192,26 @@ runs right after pass 2):
    ``kind: campaign`` tasks (its ``spawn-issue --auto`` recovery would boot
    the wrong skill); see the campaign-pass section comment for the full
    cross-pass interaction notes.
+10. **Idle-unmapped-session pass (AUTO-STOP by default; runs right after
+   pass 7, before the GC pass).** The third session reaper, closing the
+   class BOTH earlier reapers structurally exclude (2026-06-12 VM-lag
+   incident: 25 unmapped sessions idle 19-43h each, LIVE inner Claude plus
+   ~8 MCP server children, ~23 GB RSS total): the zombie-wrapper pass only
+   fires when the tree has NO inner Claude, and the session-reconcile pass
+   only touches issue-MAPPED sessions. This pass stops an unmapped project-cwd
+   session whose resolved Claude transcript (per-wrapper-pid via
+   ``session_resolver``) has been idle >= ``EPM_UNMAPPED_IDLE_REAP_S``
+   (default 12h) on >= ``threshold`` consecutive checks. NEVER touches: the
+   PM session, non-project cwds, issue-mapped sessions (registry entry or
+   ``issue-<N>`` worktree cwd — the reconcile/zombie passes own those),
+   wrappers holding a controlling TTY (a terminal the user may be sitting
+   at), and sessions whose idleness signal cannot be resolved (missing
+   data FAILS TOWARD KEEP — loud log, episode state frozen, never a reap).
+   ``EPM_UNMAPPED_IDLE_REAP=0`` falls back to alert-only. Stops are
+   verified on the next tick (daemon ACK != kill), mirroring the
+   zombie-wrapper contract; records land in
+   ``~/.workflow-autonomous/idle-unmapped-events.jsonl`` (no task to carry a
+   marker, by definition). Daemon-gated.
 
 Why each pass exists
 --------------------
@@ -324,6 +345,7 @@ from pathlib import Path
 # helpers from pod_lifecycle (rather than re-deriving a per-issue regex — the
 # old `epm-issue-<N>`-only regex never matched the canonical `pod-<N>` names,
 # so the whole pass was dead code).
+import session_resolver
 from pod_lifecycle import _is_managed_pod, _issue_from_pod_name
 from runpod_api import list_team_pods
 from spawn_session import (
@@ -336,6 +358,7 @@ from spawn_session import (
     _load_session_issue_map,
     _load_session_meta,
 )
+from tick_triage import plan_pending_over_cap
 
 # Active-drive statuses: a dead session here SHOULD be resurrected.
 # `followups_running` is ACTIVE (2026-06-10, un-phantomed): a same-issue
@@ -528,6 +551,20 @@ _ORPHAN_ALERT_NOTE_SENTINEL = "[autonomous_session_watch:orphan-alert]"
 # staleness-filter contract as the others.
 _FOLLOWUPS_AWAITING_CHILD_NOTE_SENTINEL = "[autonomous_session_watch:followups-awaiting-child]"
 
+# Substring stamped into the marker posted when the stalled / orphan passes
+# detect a COMPLETED same-issue follow-up round stranded at
+# ``followups_running`` (round-end markers newer than the round's
+# ``epm:followup-scope`` — the owning session died after the final gates but
+# before executing the designed re-park) and execute the re-park
+# (``task.py set-status <N> awaiting_promotion``) on the session's behalf.
+# Incident: task #533, 2026-06-11/12 — the round finished every gate
+# (clean-result re-gate PASS, worktree merged, ``epm:step-completed``
+# step=9a-bis exit_kind=parked at 10:54Z) but the session died before the
+# re-park; the followups-awaiting-child exemption then suppressed every
+# respawn, freezing the task at ``followups_running`` for ~26h until a
+# manual re-park. Same staleness-filter contract as the others.
+_FOLLOWUP_ROUND_REPARK_NOTE_SENTINEL = "[autonomous_session_watch:followup-round-repark]"
+
 # Substring stamped into the one-time alert the session-reconcile pass posts
 # (only in the EPM_SESSION_RECONCILE_AUTOSTOP=0 alert-only fallback) when a
 # live session has outlived its parked/terminal (awaiting_promotion/
@@ -577,6 +614,16 @@ _ZOMBIE_WRAPPER_ALERT_NOTE_SENTINEL = "[autonomous_session_watch:zombie-wrapper-
 # allowed retry (mirrors the session-reconcile stop-verification contract).
 _ZOMBIE_WRAPPER_STOP_FAILED_NOTE_SENTINEL = "[autonomous_session_watch:zombie-wrapper-stop-failed]"
 
+# Substrings stamped into the records the idle-unmapped pass writes when it
+# stops / alerts on / fails to stop an unmapped project session whose transcript
+# has been idle past the reap window (the 2026-06-12 class: 25 unmapped
+# sessions idle 19-43h, live inner Claude + ~8 MCP children each, ~23 GB RSS
+# total). Unmapped sessions have no task to carry a marker, so these land in
+# the fallback events file — registered here anyway for sentinel uniformity.
+_IDLE_UNMAPPED_STOP_NOTE_SENTINEL = "[autonomous_session_watch:idle-unmapped-stop]"
+_IDLE_UNMAPPED_ALERT_NOTE_SENTINEL = "[autonomous_session_watch:idle-unmapped-alert]"
+_IDLE_UNMAPPED_STOP_FAILED_NOTE_SENTINEL = "[autonomous_session_watch:idle-unmapped-stop-failed]"
+
 # All watcher-posted note substrings to exclude from `_latest_progress_ts`.
 # Pulled into one frozenset so every pass's filter is uniform: add a new
 # watcher-posted marker -> add its sentinel here -> _latest_progress_ts
@@ -593,6 +640,7 @@ _WATCHER_NOTE_SENTINELS: frozenset[str] = frozenset(
         _ORPHAN_RESPAWN_NOTE_SENTINEL,
         _ORPHAN_ALERT_NOTE_SENTINEL,
         _FOLLOWUPS_AWAITING_CHILD_NOTE_SENTINEL,
+        _FOLLOWUP_ROUND_REPARK_NOTE_SENTINEL,
         _SESSION_RECONCILE_ALERT_NOTE_SENTINEL,
         _SESSION_RECONCILE_STOP_NOTE_SENTINEL,
         _SESSION_RECONCILE_STOP_FAILED_NOTE_SENTINEL,
@@ -600,6 +648,9 @@ _WATCHER_NOTE_SENTINELS: frozenset[str] = frozenset(
         _ZOMBIE_WRAPPER_STOP_NOTE_SENTINEL,
         _ZOMBIE_WRAPPER_ALERT_NOTE_SENTINEL,
         _ZOMBIE_WRAPPER_STOP_FAILED_NOTE_SENTINEL,
+        _IDLE_UNMAPPED_STOP_NOTE_SENTINEL,
+        _IDLE_UNMAPPED_ALERT_NOTE_SENTINEL,
+        _IDLE_UNMAPPED_STOP_FAILED_NOTE_SENTINEL,
     }
 )
 
@@ -2537,7 +2588,10 @@ def _provision_in_flight_reason(issue: int, now: float) -> str | None:
         age = now - state.stat().st_mtime
     except OSError:
         return None
-    if age < STALLED_WINDOW_S:
+    # Negative age = mtime in the FUTURE relative to `now` (clock skew, or a
+    # caller-supplied fake clock) — never "fresh", or the exemption would
+    # permanently mask a genuinely stalled session.
+    if 0 <= age < STALLED_WINDOW_S:
         return f"poll-pipeline state fresh ({age / 60:.1f}m old): {state.name}"
     return None
 
@@ -2574,11 +2628,47 @@ def _provision_in_flight_reason(issue: int, now: float) -> str | None:
 # (the user promoted the child and `/issue 533` re-ran Step 10 to flip the
 # parent), the next tick observes a different latest step-completed shape
 # and the suppression dissolves naturally.
+#
+# ROUND-COMPLETE RE-PARK (the suppression's counterpart — #533 freeze,
+# 2026-06-11→12): the status has a THIRD shape — a same-issue follow-up
+# round that finished every gate but whose owning session died BEFORE
+# executing the designed re-park (`set-status <N> awaiting_promotion`,
+# SKILL.md Step 9b § Same-issue follow-up loop step 3). Detectable from the
+# markers alone: a parked round-end ``epm:step-completed`` NEWER than the
+# round's ``epm:followup-scope``, with NO ``epm:same-issue-followup-run``
+# completion marker recording the round (a recorded round — run marker
+# newer than the scope — means the re-park already happened per the
+# designed step-3→step-4 ordering, so a later ``followups_running`` status
+# is the legacy children-in-flight shape, not this round stranded).
+# Neither suppressing (freeze — what happened to #533 for ~26h) nor
+# respawning (each respawned session re-concluded "waiting on child",
+# posted another parked step-10 marker, and exited — 3 cycles in 2h) fixes
+# it; the watcher executes the re-park directly
+# (:func:`_repark_completed_followup_round`), then posts the round's
+# ``epm:same-issue-followup-run`` completion marker on the dead session's
+# behalf (closing the scope for `/issue` Step 0 routing — an unrun scope
+# would re-route a re-invoked session into re-running the completed round)
+# plus a sentinel-stamped progress marker. Probed BEFORE the awaiting-child
+# suppression in both passes; on a failed re-park the passes fall back to
+# the pre-existing handling so the fix is never worse than the old
+# behavior. A task with NO ``epm:followup-scope`` on record (the legacy
+# children-in-flight shape) never triggers the re-park.
 
 # Step + exit_kind that mark the "parked, awaiting child" state. Pinned as
 # constants so the tests + the helper share one source of truth.
 _FOLLOWUPS_CHILDREN_WAIT_STEP = "10"
 _FOLLOWUPS_CHILDREN_WAIT_EXIT_KIND = "parked"
+
+# Steps whose ``exit_kind=parked`` step-completed marks the END of a
+# same-issue follow-up round (the designed next action is the re-park to
+# ``awaiting_promotion``): ``9a-bis`` is the round's documented EXIT site
+# (SKILL.md Step 9b § Same-issue follow-up loop — the §5 marker posted at
+# the tail of the clean-result re-gate) and ``10`` is the "classification
+# pending; awaiting promotion" park a re-driven session posts when it finds
+# the pipeline already complete. A mid-round park (e.g. step 2c over-cap
+# plan approval, which holds at ``followups_running`` in place) is NOT
+# round-end — re-parking there would abandon an unapproved round.
+_FOLLOWUP_ROUND_END_STEPS = frozenset({"9a-bis", "10"})
 
 # Statuses that count a child task as TERMINAL for the purpose of this check.
 # A child at `awaiting_promotion` is NOT terminal here — it is exactly the
@@ -2689,6 +2779,230 @@ def _followups_awaiting_child_reason(
         f"(child promotion is a user-only gate; respawning the parent "
         f"cannot advance it)"
     )
+
+
+def _followup_round_complete_reason(events: list[dict]) -> str | None:
+    """Reason string when ``events`` show a COMPLETED-but-UNRECORDED
+    same-issue follow-up round whose designed re-park (``set-status <N>
+    awaiting_promotion``) never ran: the latest non-watcher
+    ``epm:step-completed`` carries ``exit_kind=parked`` with a round-end
+    step (:data:`_FOLLOWUP_ROUND_END_STEPS`) NEWER than the latest
+    ``epm:followup-scope``, and no ``epm:same-issue-followup-run``
+    completion marker records the round — the #533 shape (round-end
+    ``9a-bis`` park, then ``10`` parks from respawned sessions).
+
+    ``None`` when:
+    - no ``epm:followup-scope`` is on record (the legacy children-in-flight
+      shape has no scope marker — never re-park it);
+    - the round is still in flight (scope newer than any round-end signal);
+    - the round is RECORDED — an ``epm:same-issue-followup-run`` newer than
+      the scope. The designed ordering posts that marker only AFTER the
+      re-park (loop step 3 → step 4), so a ``followups_running`` status
+      alongside a recorded round is a LATER legitimate transition (the
+      legacy children-in-flight shape via Step 10 step 5), NOT this round
+      stranded — defer to the awaiting-child suppression. This also
+      self-disarms the predicate after the watcher's own re-park, which
+      posts the completion marker itself
+      (:func:`_repark_completed_followup_round`).
+
+    Pure over the already-loaded ``events`` — no subprocess.
+    """
+    scope_ts: float | None = None
+    run_marker_ts: float | None = None
+    for ev in events:
+        kind = ev.get("kind")
+        if kind not in ("epm:followup-scope", "epm:same-issue-followup-run"):
+            continue
+        ts = _parse_event_ts(ev.get("ts"))
+        if ts is None:
+            continue
+        if kind == "epm:followup-scope":
+            if scope_ts is None or ts > scope_ts:
+                scope_ts = ts
+        elif run_marker_ts is None or ts > run_marker_ts:
+            run_marker_ts = ts
+    if scope_ts is None:
+        return None
+    if run_marker_ts is not None and run_marker_ts > scope_ts:
+        return None
+    sc = _latest_step_completed(events)
+    if sc is None:
+        return None
+    step = sc.get("step")
+    sc_ts = _parse_event_ts(sc.get("ts"))
+    if (
+        step in _FOLLOWUP_ROUND_END_STEPS
+        and sc.get("exit_kind") == _FOLLOWUPS_CHILDREN_WAIT_EXIT_KIND
+        and sc_ts is not None
+        and sc_ts > scope_ts
+    ):
+        return (
+            f"same-issue follow-up round complete (round-end "
+            f"epm:step-completed step={step} exit_kind=parked newer than the "
+            f"round's epm:followup-scope) but the task is still at "
+            f"followups_running — the owning session exited before the "
+            f"designed re-park"
+        )
+    return None
+
+
+def _scope_note_field(events: list[dict], field: str) -> str | None:
+    """Value of ``<field>: <value>`` from the latest ``epm:followup-scope``
+    event's note (line-prefix match, first hit wins), or ``None``."""
+    latest: dict | None = None
+    latest_ts: float | None = None
+    for ev in events:
+        if ev.get("kind") != "epm:followup-scope":
+            continue
+        ts = _parse_event_ts(ev.get("ts"))
+        if ts is None:
+            continue
+        if latest_ts is None or ts > latest_ts:
+            latest_ts = ts
+            latest = ev
+    if latest is None:
+        return None
+    for line in (latest.get("note") or "").splitlines():
+        stripped = line.strip()
+        if stripped.startswith(f"{field}:"):
+            value = stripped[len(field) + 1 :].strip().rstrip(",")
+            return value or None
+    return None
+
+
+def _post_followup_run_marker(issue: int, events: list[dict], dry_run: bool) -> bool:
+    """Post the ``epm:same-issue-followup-run v1`` completion marker for the
+    round the watcher just re-parked, closing the round's
+    ``epm:followup-scope`` for `/issue` Step 0 routing — WITHOUT it the
+    scope stays UNRUN and a re-invoked session would re-dispatch the
+    already-completed round (the Step 0 dispatch table routes a post-result
+    status + unrun scope back into the follow-up loop). ``followup_label``
+    + ``source`` are parsed from the latest scope marker's note so the
+    idempotency match and the autonomous round-cap counting stay correct;
+    ``round`` is 1 + the count of existing run markers. Fail-soft: a
+    missing label or a failed post logs to stderr and returns False — the
+    re-park itself (the substance) already happened."""
+    label = _scope_note_field(events, "followup_label")
+    if label is None:
+        print(
+            f"  issue #{issue}: cannot post epm:same-issue-followup-run — no "
+            f"followup_label parseable from the latest epm:followup-scope note; "
+            f"the scope stays unrun (Step 0 may re-route into the loop)",
+            file=sys.stderr,
+        )
+        return False
+    source = _scope_note_field(events, "source") or "unknown"
+    round_idx = 1 + sum(1 for ev in events if ev.get("kind") == "epm:same-issue-followup-run")
+    note = (
+        f"followup_label: {label}\n"
+        f"source: {source}\n"
+        f"round: {round_idx}\n"
+        f"outcome: round completed but the owning session died before the "
+        f"designed re-park; autonomous_session_watch executed the re-park "
+        f"(set-status awaiting_promotion) and posted this completion marker "
+        f"on its behalf (#533 freeze class)"
+    )
+    if dry_run:
+        print(f"  [dry-run] would post epm:same-issue-followup-run on #{issue}: {label}")
+        return True
+    try:
+        subprocess.run(
+            [
+                "uv",
+                "run",
+                "python",
+                "scripts/task.py",
+                "post-marker",
+                str(issue),
+                "epm:same-issue-followup-run",
+                "--note",
+                note,
+            ],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=True,
+        )
+    except (subprocess.SubprocessError, OSError) as exc:
+        print(
+            f"  issue #{issue}: epm:same-issue-followup-run post FAILED ({exc}); "
+            f"the scope stays unrun (Step 0 may re-route into the loop)",
+            file=sys.stderr,
+        )
+        return False
+    return True
+
+
+def _repark_completed_followup_round(
+    issue: int, reason: str, events: list[dict], dry_run: bool
+) -> bool:
+    """Execute the stranded re-park for a COMPLETED same-issue follow-up
+    round: ``task.py set-status <issue> awaiting_promotion`` — the move the
+    dead session was designed to make (explicitly permitted by the
+    ``set_status`` followups_running guard in ``task_workflow.py``) — then
+    post the round's ``epm:same-issue-followup-run`` completion marker
+    (:func:`_post_followup_run_marker`, closes the scope for Step 0
+    routing) and a sentinel-stamped progress marker documenting the
+    intervention. Returns True on set-status success (callers skip respawn
+    / suppression), False on set-status failure (callers fall back to the
+    pre-existing handling, so a failed re-park is never WORSE than the old
+    freeze). ``dry_run`` classifies only — no mutation, no markers.
+
+    The watcher runs from PROJECT_ROOT on ``main``, so the task.py
+    branch-guard is satisfied (same contract as
+    :func:`_post_progress_marker`).
+    """
+    if dry_run:
+        print(
+            f"  issue #{issue}: DRY-RUN would re-park completed same-issue "
+            f"follow-up round -> awaiting_promotion ({reason})"
+        )
+        return True
+    try:
+        out = subprocess.run(
+            [
+                "uv",
+                "run",
+                "python",
+                "scripts/task.py",
+                "set-status",
+                str(issue),
+                "awaiting_promotion",
+            ],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+    except (subprocess.SubprocessError, OSError) as exc:
+        print(
+            f"  issue #{issue}: follow-up round re-park FAILED ({exc}); "
+            f"falling back to existing stalled/orphan handling",
+            file=sys.stderr,
+        )
+        return False
+    if out.returncode != 0:
+        detail = (out.stderr or out.stdout or "").strip()[:300]
+        print(
+            f"  issue #{issue}: follow-up round re-park FAILED "
+            f"(set-status rc={out.returncode}): {detail}",
+            file=sys.stderr,
+        )
+        return False
+    print(f"  issue #{issue}: re-parked completed follow-up round -> awaiting_promotion")
+    _post_followup_run_marker(issue, events, dry_run)
+    _post_progress_marker(
+        issue,
+        f"{_FOLLOWUP_ROUND_REPARK_NOTE_SENTINEL} {reason}. Watcher executed "
+        f"the designed re-park (`set-status {issue} awaiting_promotion`) on "
+        f"behalf of the dead/stalled session (incident #533 freeze class). "
+        f"Review the clean-result and promote via `task.py promote {issue} "
+        f"useful|not-useful`, then re-invoke `/issue {issue}` to fire Step 10.",
+        dry_run,
+        label="followup-round-repark",
+    )
+    return True
 
 
 def _stop_session(session_id: str, dry_run: bool) -> bool:
@@ -3137,6 +3451,24 @@ def _apply_stalled_followups_exemption(
     """
     if action == "keep" and new_missed == 0:
         return action, new_missed, followups_child_alerted
+    # Round-complete re-park (incident #533 freeze, 2026-06-11→12): a
+    # COMPLETED same-issue follow-up round stranded at followups_running
+    # (session died after the final gate, before the designed re-park) is
+    # FIXED by executing the re-park — neither suppression (freeze) nor
+    # respawn (each respawned session re-parked at step 10 and exited)
+    # helps. Probed BEFORE the awaiting-child suppression so the freeze
+    # shape (round-end markers + an open user-gated child) re-parks instead
+    # of freezing. On re-park failure, fall through to the pre-existing
+    # handling.
+    if status == "followups_running" and not has_pod:
+        repark_reason = _followup_round_complete_reason(events)
+        if repark_reason is not None:
+            print(
+                f"  issue #{issue}: ALIVE-BUT-STALLED round-complete re-park — "
+                f"{repark_reason} (would have been action={action})."
+            )
+            if _repark_completed_followup_round(issue, repark_reason, events, dry_run):
+                return "keep", 0, followups_child_alerted
     followups_reason = _followups_awaiting_child_reason(
         issue, status=status, has_pod=has_pod, events=events
     )
@@ -3844,6 +4176,20 @@ def _check_orphan_followups_exemption(
     """
     if action != "respawn":
         return action, None
+    # Round-complete re-park (incident #533 freeze): probed BEFORE the
+    # awaiting-child suppression — a completed same-issue follow-up round
+    # stranded at followups_running is fixed by executing the re-park, not
+    # by suppressing or respawning. The actual mutation happens in
+    # :func:`_handle_orphan_followup_round_repark` (this helper stays
+    # read-only, mirroring the awaiting-child probe).
+    if status == "followups_running" and not has_pod:
+        repark_reason = _followup_round_complete_reason(events)
+        if repark_reason is not None:
+            print(
+                f"  issue #{issue}: ORPHAN-RESPAWN round-complete re-park — "
+                f"{repark_reason}; executing the re-park instead of a respawn."
+            )
+            return "followup-round-repark", repark_reason
     followups_reason = _followups_awaiting_child_reason(
         issue, status=status, has_pod=has_pod, events=events
     )
@@ -3854,6 +4200,43 @@ def _check_orphan_followups_exemption(
         f"diverting to alert-only (does NOT consume respawn budget)."
     )
     return "followups-awaiting-child", followups_reason
+
+
+def _handle_orphan_followup_round_repark(
+    *,
+    issue: int,
+    reason: str,
+    events: list[dict],
+    new_missed: int,
+    alerted: bool,
+    respawn_day: str,
+    respawns_today: int,
+    followups_child_alerted: bool,
+    state: dict,
+    dry_run: bool,
+) -> None:
+    """Orphan-sweep handler for the round-complete re-park (incident #533
+    freeze class): execute the stranded re-park; on success reset the miss
+    counter (the task leaves ACTIVE and drops out of the sweep next tick),
+    on failure persist ``new_missed`` as-is — in production that is the 0
+    from ``decide_orphan``'s respawn decision, so the orphan pass re-probes
+    and retries the re-park once the staleness signals re-accumulate to the
+    respawn action (~2 ticks), rather than next tick. Never consumes the
+    daily respawn budget. (The stalled pass falls back same-tick to the
+    awaiting-child suppression on a failed re-park; this pass retries.)
+    Factored out of :func:`_process_orphan_task` to keep that function
+    under the C901 cyclomatic-complexity cap (15)."""
+    ok = _repark_completed_followup_round(issue, reason, events, dry_run)
+    if not dry_run:
+        _save_orphan_state(
+            issue,
+            missed=0 if ok else new_missed,
+            alerted=alerted,
+            respawn_day=respawn_day,
+            respawns_today=respawns_today,
+            followups_child_alerted=followups_child_alerted,
+            prev=state,
+        )
 
 
 def _handle_orphan_followups_awaiting_child(
@@ -4027,6 +4410,20 @@ def _process_orphan_task(
                     label="orphan-respawn",
                 )
         return
+    if action == "followup-round-repark":
+        _handle_orphan_followup_round_repark(
+            issue=issue,
+            reason=followups_reason or "",
+            events=events,
+            new_missed=new_missed,
+            alerted=alerted,
+            respawn_day=day_key,
+            respawns_today=respawns_today,
+            followups_child_alerted=followups_child_alerted,
+            state=state,
+            dry_run=dry_run,
+        )
+        return
     if action == "followups-awaiting-child":
         _handle_orphan_followups_awaiting_child(
             issue=issue,
@@ -4100,6 +4497,11 @@ _GC_TARGETS: tuple[tuple[str, str], ...] = (
     # evaluate top-to-bottom). Primary reaping is the campaign pass itself at
     # CAMPAIGN_TERMINAL; this is the deleted-task / completed-archived backstop.
     ("campaign-watch-", ""),
+    # Gate-push transition state (== GATE_NOTIFY_STATE_PREFIX, defined in the
+    # gate-push section below; literal here for the same top-to-bottom reason
+    # as campaign-watch-). The companion tick-runaway-<N>.flag files are NOT
+    # json and self-clean inside _process_runaway_flag instead.
+    ("gate-notify-", ""),
     ("", "issue-progress"),
     ("", "issue-tick-last-status"),
 )
@@ -5660,6 +6062,572 @@ def zombie_wrapper_pass(
         )
 
 
+# ─── idle-unmapped-session pass ──────────────────────────────────────────────
+#
+# The third session reaper, closing the class BOTH earlier reapers
+# structurally exclude (2026-06-12 VM-lag incident): 25 unmapped Happy
+# sessions sat idle 19-43h each with a LIVE inner Claude plus ~8 MCP server
+# children, holding ~23 GB RSS total. The zombie-wrapper pass only fires when
+# the tree has NO inner Claude; the session-reconcile pass only touches
+# issue-MAPPED sessions. So idle unmapped sessions accumulated without bound
+# until a manual sweep. This pass auto-stops an unmapped project-cwd session whose
+# resolved Claude transcript has been idle past the reap window (default 12h,
+# env EPM_UNMAPPED_IDLE_REAP_S) on >= threshold consecutive checks.
+#
+# Idleness signal: the mtime of the session's Claude transcript jsonl,
+# resolved per-wrapper-pid via session_resolver's HAPPY-LOG path ONLY
+# (authoritative, per-pid; the resolver's shared-projects-dir filesystem
+# fallback is deliberately rejected — it can attribute another session's
+# OLDER transcript, i.e. a WRONG signal rather than a missing one — see
+# _transcript_idle_age_s). An active turn appends to the transcript
+# continuously; an idle session does not. An UNRESOLVABLE signal FAILS
+# TOWARD KEEP: the session is skipped with a loud log line and its episode
+# state is left frozen — never reaped on missing data.
+#
+# Never touched: the PM session (pm-session.json registration), non-project
+# cwds, issue-MAPPED sessions (registry entry or issue-<N> worktree cwd —
+# the reconcile/zombie passes own those), and sessions whose wrapper holds a
+# controlling TTY (a terminal-run `happy claude` the user may be sitting at;
+# daemon-RPC-spawned sessions are headless, so the TTY test is a strict
+# superset of "tmux client attached" and errs toward keep).
+
+IDLE_UNMAPPED_STATE_PREFIX = "idle-unmapped-"
+
+# Default transcript-idle window before an unmapped session is reapable.
+# 12h: long enough that an overnight pause in a chat session the user means to
+# come back to survives, short enough that the accumulation class (19-43h
+# idle in the incident) is cleared within a day. Override via
+# EPM_UNMAPPED_IDLE_REAP_S (seconds).
+UNMAPPED_IDLE_REAP_S = 12 * 3600
+
+
+def _unmapped_idle_reap_enabled() -> bool:
+    """True unless ``EPM_UNMAPPED_IDLE_REAP`` is explicitly set to a falsy
+    value (``0`` / ``false`` / ``no``) — the alert-only kill-switch, same
+    parsing as :func:`_zombie_wrapper_reap_enabled`."""
+    raw = os.environ.get("EPM_UNMAPPED_IDLE_REAP", "")
+    return raw.strip().lower() not in {"0", "false", "no"}
+
+
+def _unmapped_idle_reap_s() -> float:
+    """Idle reap window in seconds: ``EPM_UNMAPPED_IDLE_REAP_S`` when set to
+    a positive number, else :data:`UNMAPPED_IDLE_REAP_S` (12h). Garbled /
+    non-positive values fall back to the default."""
+    raw = os.environ.get("EPM_UNMAPPED_IDLE_REAP_S", "")
+    try:
+        val = float(raw)
+    except ValueError:
+        return UNMAPPED_IDLE_REAP_S
+    return val if val > 0 else UNMAPPED_IDLE_REAP_S
+
+
+def _wrapper_has_controlling_tty(pid: int) -> bool:
+    """True iff ``/proc/<pid>/stat`` reports a controlling TTY (tty_nr != 0).
+
+    A terminal-run ``happy claude`` wrapper holds its terminal's TTY; the
+    daemon's RPC-spawned sessions are headless (tty_nr == 0). Used as the
+    "the user may literally be looking at this session" guard. Unreadable
+    /proc (raced exit / perms) -> True, failing toward keep. (Note the
+    asymmetry vs the transcript signal: a True here maps to action
+    ``"clear"`` — RESETTING any accumulated episode — while a missing
+    transcript signal FREEZES it. Both directions fail toward keep; a
+    flapping /proc read merely restarts accumulation.)"""
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text()
+        # comm (field 2) can contain spaces/parens; fields after the LAST ')'
+        # are state(0) ppid(1) pgrp(2) session(3) tty_nr(4) — same parse as
+        # _proc_children_map.
+        tty_nr = int(stat.rsplit(")", 1)[1].split()[4])
+    except (OSError, IndexError, ValueError):
+        return True
+    return tty_nr != 0
+
+
+def _transcript_idle_age_s(node_pid: int, now: float) -> tuple[float | None, str | None]:
+    """Seconds since the session's resolved Claude transcript was last
+    written, or ``(None, reason)`` when the signal is unavailable.
+
+    Resolution via the HAPPY-LOG path ONLY
+    (:func:`session_resolver._resolve_transcript_via_happy_log` — per-pid
+    and authoritative; every daemon-spawned wrapper writes one, which
+    covers the incident class). The resolver's filesystem fallback is
+    deliberately NOT used: it scans the cwd-derived projects dir, which
+    for repo-root chat sessions is SHARED across sessions and full of
+    other sessions' transcripts — its /issue-headed preference can
+    attribute an OLDER, WRONG transcript whose stale mtime would read as
+    days-idle and stop a genuinely fresh session. A wrong signal is worse
+    than a missing one, so a happy-log miss is NOT an idleness verdict —
+    the caller must fail toward keep."""
+    transcript, reason = session_resolver._resolve_transcript_via_happy_log(node_pid)
+    if transcript is None:
+        return None, reason or "transcript unresolvable"
+    try:
+        mtime = Path(transcript).stat().st_mtime
+    except OSError as e:
+        return None, f"transcript stat failed: {type(e).__name__}"
+    return max(0.0, now - mtime), None
+
+
+def decide_idle_unmapped(
+    mapped: bool,
+    has_tty: bool,
+    idle_age_s: float | None,
+    missed: int,
+    alerted: bool,
+    threshold: int = 2,
+    *,
+    reap_enabled: bool = True,
+    idle_reap_s: float = UNMAPPED_IDLE_REAP_S,
+) -> tuple[str, int]:
+    """Pure decision for one live, non-PM, project-cwd session. Returns
+    ``(action, new_missed)`` with action ``"clear"`` | ``"skip"`` |
+    ``"keep"`` | ``"stop"`` | ``"alert"``.
+
+    Cases:
+
+    - ``mapped`` -> ``("clear", 0)``. Issue-mapped sessions belong to the
+      session-reconcile / zombie passes; a session that GAINS a mapping
+      mid-episode (resolver backfill) leaves scope and its state clears.
+    - ``has_tty`` -> ``("clear", 0)``. A controlling TTY means a terminal
+      the user may be sitting at; the episode ends.
+    - ``idle_age_s is None`` -> ``("skip", missed)``. The idleness signal is
+      unavailable — fail toward keep, FREEZE the count (no increment, no
+      reset: a flapping resolver neither accumulates toward a stop nor
+      erases a real episode).
+    - ``idle_age_s < idle_reap_s`` -> ``("clear", 0)``. Recent activity;
+      episode over.
+    - Over the window but below ``threshold`` consecutive checks ->
+      ``("keep", missed+1)``.
+    - Threshold met, ``reap_enabled`` (default) -> ``("stop", 0)``.
+    - Threshold met, kill-switch fallback, not yet ``alerted`` ->
+      ``("alert", missed+1)`` — one loud record per episode; the count keeps
+      accumulating so a later re-enable stops on the next tick.
+    - Otherwise -> ``("keep", missed+1)`` (alert-only, already alerted).
+
+    Unlike the zombie pass there is no separate grace window: the idle age
+    IS the time guard (measured directly off the transcript mtime), so the
+    >= threshold consecutive-checks accumulation on top of it is the whole
+    transient-glitch margin.
+    """
+    if mapped or has_tty:
+        return ("clear", 0)
+    if idle_age_s is None:
+        return ("skip", missed)
+    if idle_age_s < idle_reap_s:
+        return ("clear", 0)
+    new_missed = missed + 1
+    if new_missed < threshold:
+        return ("keep", new_missed)
+    if reap_enabled:
+        return ("stop", 0)
+    if not alerted:
+        return ("alert", new_missed)
+    return ("keep", new_missed)
+
+
+def _idle_unmapped_state_path(sid: str) -> Path:
+    return AUTONOMOUS_REGISTRY_DIR / f"{IDLE_UNMAPPED_STATE_PREFIX}{sid}.json"
+
+
+def _load_idle_unmapped_state(sid: str) -> dict:
+    """Per-session idle-unmapped state (``{}`` if absent/garbled — a fresh or
+    unreadable file starts the miss count at 0, mirroring the other watcher
+    state loaders)."""
+    path = _idle_unmapped_state_path(sid)
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _save_idle_unmapped_state(
+    sid: str,
+    *,
+    missed: int,
+    alerted: bool,
+    pid: int,
+    idle_age_s: float | None,
+    first_over_ts: float,
+    stopped_at: float | None = None,
+    stop_retried: bool = False,
+    stop_failed_alerted: bool = False,
+) -> None:
+    """Persist the per-session idle-unmapped state atomically (temp +
+    rename). ``first_over_ts`` anchors the GC-age log line; ``pid`` /
+    ``idle_age_s`` are informational (the decision keys on the live daemon
+    snapshot + a fresh transcript stat each tick). The stop-verification
+    fields mirror the zombie-wrapper contract (ACK != kill)."""
+    AUTONOMOUS_REGISTRY_DIR.mkdir(parents=True, exist_ok=True)
+    dest = _idle_unmapped_state_path(sid)
+    payload = {
+        "missed": missed,
+        "alerted": alerted,
+        "pid": pid,
+        "idle_age_s": idle_age_s,
+        "first_over_ts": first_over_ts,
+        "stopped_at": stopped_at,
+        "stop_retried": bool(stop_retried),
+        "stop_failed_alerted": bool(stop_failed_alerted),
+    }
+    tmp = dest.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(payload, indent=2))
+    tmp.replace(dest)
+
+
+def _clear_idle_unmapped_state(sid: str) -> None:
+    """Drop the per-session state (episode over: activity resumed, the
+    session left scope, or it was verified stopped)."""
+    _idle_unmapped_state_path(sid).unlink(missing_ok=True)
+
+
+def _gc_orphan_idle_unmapped_state(
+    live_sids: set[str], dry_run: bool, now: float | None = None
+) -> None:
+    """GC idle-unmapped state for sessions no longer in the daemon's live set
+    (stopped by any path — the episode is over; this reap is also the
+    stop-verification success path). Same contract as
+    :func:`_gc_orphan_zombie_state`."""
+    if not AUTONOMOUS_REGISTRY_DIR.is_dir():
+        return
+    now = now if now is not None else time.time()
+    for path in sorted(AUTONOMOUS_REGISTRY_DIR.glob(f"{IDLE_UNMAPPED_STATE_PREFIX}*.json")):
+        sid = path.stem[len(IDLE_UNMAPPED_STATE_PREFIX) :]
+        if sid in live_sids:
+            continue
+        try:
+            payload = json.loads(path.read_text())
+            first_over = payload.get("first_over_ts", now)
+            if not isinstance(first_over, int | float):
+                first_over = now
+        except (json.JSONDecodeError, OSError):
+            first_over = 0  # unreadable -> definitely orphaned, drop it
+        age = now - first_over
+        reason = (
+            "session left the live set"
+            if age < POD_SAFETY_STATE_MAX_AGE_S
+            else f"age={age / 3600:.1f}h"
+        )
+        print(f"  idle-unmapped: GC orphan state {sid} ({reason})")
+        if not dry_run:
+            path.unlink(missing_ok=True)
+
+
+def _append_idle_unmapped_event(note: str, dry_run: bool) -> None:
+    """Durable trace for idle-unmapped actions — these sessions have NO issue
+    mapping by definition, so there is never a task to carry a marker. One
+    JSON line per action in ``~/.workflow-autonomous/idle-unmapped-events.jsonl``
+    (same role as the zombie-wrapper fallback file). Fail-soft."""
+    dest = AUTONOMOUS_REGISTRY_DIR / "idle-unmapped-events.jsonl"
+    line = json.dumps(
+        {"ts": datetime.now().astimezone().isoformat(), "kind": "idle-unmapped", "note": note}
+    )
+    if dry_run:
+        print(f"  [dry-run] would append idle-unmapped event to {dest}")
+        return
+    try:
+        AUTONOMOUS_REGISTRY_DIR.mkdir(parents=True, exist_ok=True)
+        with open(dest, "a") as fh:
+            fh.write(line + "\n")
+    except OSError as e:
+        print(f"  WARNING: appending idle-unmapped event failed: {e}", file=sys.stderr)
+
+
+def _check_idle_unmapped_stop_verification(
+    sid: str,
+    pid: int,
+    in_scope: bool,
+    prev: dict,
+    dry_run: bool,
+    now: float,
+) -> bool:
+    """Next-tick verification that an ACKed idle-unmapped stop landed
+    (ACK != kill). Returns True when this tick was consumed by the
+    verification path. Same ladder as
+    :func:`_check_zombie_stop_verification`: one stop retry, then one loud
+    record, then quiet; the verified-gone path is the live-session-keyed GC."""
+    stopped_at = prev.get("stopped_at")
+    if not isinstance(stopped_at, int | float) or not stopped_at:
+        return False
+    if not in_scope:
+        return False
+    first_over_ts = prev.get("first_over_ts")
+    if not isinstance(first_over_ts, int | float):
+        first_over_ts = now
+    print(
+        f"  IDLE-UNMAPPED STOP-VERIFY FAILED session {sid}: still alive one "
+        f"tick after the daemon ACKed its stop (ACK != kill).",
+        file=sys.stderr,
+    )
+    idle_age_s = prev.get("idle_age_s")
+    if not isinstance(idle_age_s, int | float):
+        idle_age_s = None
+    common = dict(
+        missed=prev.get("missed", 0) if isinstance(prev.get("missed", 0), int) else 0,
+        alerted=bool(prev.get("alerted", False)),
+        pid=pid,
+        idle_age_s=idle_age_s,
+        first_over_ts=first_over_ts,
+    )
+    if not prev.get("stop_retried"):
+        acked = _stop_session(sid, dry_run)
+        print(f"  idle-unmapped: stop RETRIED for {sid} (one retry per episode, acked={acked})")
+        if not dry_run:
+            _save_idle_unmapped_state(
+                sid,
+                **common,
+                stopped_at=now if acked else stopped_at,
+                stop_retried=True,
+                stop_failed_alerted=bool(prev.get("stop_failed_alerted", False)),
+            )
+        return True
+    if not prev.get("stop_failed_alerted"):
+        _append_idle_unmapped_event(
+            f"{_IDLE_UNMAPPED_STOP_FAILED_NOTE_SENTINEL} idle-unmapped-session STOP "
+            f"FAILED to land: session {sid} (wrapper pid {pid}) is still alive after "
+            f"the idle-unmapped pass stopped it AND retried once — the Happy daemon "
+            f"ACKed the stop RPCs but did not kill the wrapper. Stop manually with "
+            f"`spawn_session.py stop --session-id {sid}` (or restart the Happy "
+            f"daemon). Recorded once per episode.",
+            dry_run,
+        )
+        if not dry_run:
+            _save_idle_unmapped_state(
+                sid,
+                **common,
+                stopped_at=stopped_at,
+                stop_retried=True,
+                stop_failed_alerted=True,
+            )
+        return True
+    print(
+        f"  idle-unmapped: session {sid} already retried + alerted this episode; "
+        f"awaiting manual stop / daemon recovery."
+    )
+    return True
+
+
+def _process_idle_unmapped(
+    sid: str,
+    pid: int,
+    issue: int | None,
+    now: float,
+    dry_run: bool,
+    threshold: int,
+    *,
+    reap_enabled: bool,
+) -> None:
+    """Apply the idle-unmapped decision to one live, non-PM, project-cwd session:
+    check the wrapper's controlling TTY, stat the resolved transcript, and
+    act per :func:`decide_idle_unmapped`."""
+    mapped = issue is not None
+    has_tty = _wrapper_has_controlling_tty(pid) if not mapped else False
+    idle_age_s: float | None = None
+    signal_reason: str | None = None
+    if not mapped and not has_tty:
+        idle_age_s, signal_reason = _transcript_idle_age_s(pid, now)
+
+    prev = _load_idle_unmapped_state(sid)
+    prev_missed = prev.get("missed", 0)
+    if not isinstance(prev_missed, int):
+        prev_missed = 0
+    prev_alerted = bool(prev.get("alerted", False))
+    first_over_ts = prev.get("first_over_ts")
+    if not isinstance(first_over_ts, int | float):
+        first_over_ts = now
+
+    idle_reap_s = _unmapped_idle_reap_s()
+    in_scope = not mapped and not has_tty and idle_age_s is not None and idle_age_s >= idle_reap_s
+    if _check_idle_unmapped_stop_verification(sid, pid, in_scope, prev, dry_run, now):
+        return
+
+    action, new_missed = decide_idle_unmapped(
+        mapped,
+        has_tty,
+        idle_age_s,
+        prev_missed,
+        prev_alerted,
+        threshold,
+        reap_enabled=reap_enabled,
+        idle_reap_s=idle_reap_s,
+    )
+    idle_label = f"{idle_age_s / 3600:.1f}h" if idle_age_s is not None else "?"
+    print(
+        f"  session {sid} (pid={pid}): mapped={mapped} tty={has_tty} "
+        f"idle={idle_label} missed={prev_missed}->{new_missed} action={action}"
+    )
+
+    if action == "clear":
+        if prev and not dry_run:
+            _clear_idle_unmapped_state(sid)
+        return
+
+    if action == "skip":
+        # Idleness signal unavailable: fail toward keep, loudly, and leave
+        # the episode state frozen (neither accumulated nor erased).
+        print(
+            f"  idle-unmapped: session {sid} idleness signal unavailable "
+            f"({signal_reason}); failing toward KEEP",
+            file=sys.stderr,
+        )
+        return
+
+    if action == "stop":
+        acked = _stop_session(sid, dry_run)
+        if acked:
+            _append_idle_unmapped_event(
+                f"{_IDLE_UNMAPPED_STOP_NOTE_SENTINEL} auto-stopped idle unmapped "
+                f"Happy session {sid} (wrapper pid {pid}): its resolved Claude "
+                f"transcript has been idle {idle_label} (>= "
+                f"{idle_reap_s / 3600:.1f}h window, >= {threshold} consecutive "
+                f"checks), it has no issue mapping, no controlling TTY, and is "
+                f"not the PM session. The 2026-06-12 class: 25 such sessions "
+                f"idle 19-43h held ~23 GB RSS. Respawn if needed: "
+                f"`spawn_session.py spawn-issue --issue <N>` (or `spawn-pm`). "
+                f"Set EPM_UNMAPPED_IDLE_REAP=0 on the watcher cron to fall back "
+                f"to alert-only.",
+                dry_run,
+            )
+        if not dry_run:
+            _save_idle_unmapped_state(
+                sid,
+                missed=0 if acked else prev_missed,
+                alerted=prev_alerted,
+                pid=pid,
+                idle_age_s=idle_age_s,
+                first_over_ts=first_over_ts,
+                stopped_at=now if acked else None,
+                stop_retried=bool(prev.get("stop_retried", False)),
+                stop_failed_alerted=bool(prev.get("stop_failed_alerted", False)),
+            )
+        return
+
+    if action == "alert":
+        print(
+            f"  IDLE-UNMAPPED ALERT session {sid}: transcript idle {idle_label}; "
+            f"NOT stopping (EPM_UNMAPPED_IDLE_REAP=0 — alert-only fallback).",
+            file=sys.stderr,
+        )
+        _append_idle_unmapped_event(
+            f"{_IDLE_UNMAPPED_ALERT_NOTE_SENTINEL} IDLE unmapped Happy session: "
+            f"{sid} (wrapper pid {pid}) has an idle Claude transcript "
+            f"({idle_label} >= {idle_reap_s / 3600:.1f}h) and no issue mapping. "
+            f"NOT auto-stopped (EPM_UNMAPPED_IDLE_REAP=0 alert-only fallback); "
+            f"stop manually with `spawn_session.py stop --session-id {sid}`, or "
+            f"unset the env var on the watcher cron to restore the default reap. "
+            f"Recorded once per episode.",
+            dry_run,
+        )
+        if not dry_run:
+            _save_idle_unmapped_state(
+                sid,
+                missed=new_missed,
+                alerted=True,
+                pid=pid,
+                idle_age_s=idle_age_s,
+                first_over_ts=first_over_ts,
+            )
+        return
+
+    # action == "keep": persist the incremented miss count + episode anchor.
+    if not dry_run:
+        _save_idle_unmapped_state(
+            sid,
+            missed=new_missed,
+            alerted=prev_alerted,
+            pid=pid,
+            idle_age_s=idle_age_s,
+            first_over_ts=first_over_ts,
+        )
+
+
+def idle_unmapped_pass(
+    dry_run: bool,
+    threshold: int,
+    *,
+    daemon_reachable: bool,
+    children: list[dict] | None = None,
+    now: float | None = None,
+) -> None:
+    """Auto-stop unmapped project-cwd Happy sessions whose Claude transcript has
+    been idle >= the reap window (default 12h) on >= ``threshold``
+    consecutive checks — the live-but-idle complement of the zombie-wrapper
+    pass (which needs a DEAD inner Claude) and the unmapped complement of the
+    session-reconcile pass (which needs an issue mapping). Exclusions:
+    PM-registered sids, non-project cwds, issue-mapped sessions (registry entry
+    or issue-<N> worktree cwd), wrappers holding a controlling TTY, and any
+    session whose idleness signal cannot be resolved (fail toward keep).
+
+    Daemon-gated like the zombie pass: the wrapper pids come from the
+    daemon's ``/list`` and the stop action POSTs to it. ``children`` may be
+    injected (tests / a caller reusing its snapshot); ``None`` fetches via
+    :func:`_live_children`."""
+    now = now if now is not None else time.time()
+    if not daemon_reachable:
+        print(
+            "idle-unmapped: Happy daemon unreachable; skipping "
+            "(wrapper pids + the stop RPC both need the daemon)"
+        )
+        return
+    children = children if children is not None else _live_children()
+    live_sids = {
+        c.get("happySessionId") for c in children if isinstance(c.get("happySessionId"), str)
+    }
+    # GC ALWAYS on a daemon-reachable tick — even with zero candidates — so
+    # episodes whose session died/was stopped by any path start fresh later.
+    _gc_orphan_idle_unmapped_state(live_sids, dry_run, now=now)
+    if not children:
+        print("idle-unmapped: no live daemon-tracked sessions")
+        return
+
+    registry_map = _load_session_issue_map()
+    meta = _load_session_meta()
+    pm_sids = _load_pm_session_ids()
+    project_prefix = str(PROJECT_ROOT)
+    candidates: list[tuple[str, int, int | None]] = []
+    skipped_pm = 0
+    skipped_non_eps = 0
+    for child in children:
+        sid = child.get("happySessionId")
+        pid = child.get("pid")
+        if not isinstance(sid, str) or not sid or not isinstance(pid, int):
+            continue
+        if sid in pm_sids:
+            skipped_pm += 1
+            continue
+        path = (meta.get(sid) or {}).get("path")
+        if not isinstance(path, str) or not (
+            path == project_prefix or path.startswith(project_prefix + "/")
+        ):
+            # Non-project cwd (other projects) or no cwd metadata at all: never
+            # touched — project-ness cannot be established, so err toward keep.
+            skipped_non_eps += 1
+            continue
+        issue = registry_map.get(sid)
+        if issue is None:
+            issue = _infer_issue_from_path(path)
+        candidates.append((sid, pid, issue))
+
+    reap = _unmapped_idle_reap_enabled()
+    print(
+        f"idle-unmapped: {len(candidates)} project session(s) scanned "
+        f"({skipped_pm} PM-registered + {skipped_non_eps} non-project skipped; "
+        f"reap={'ON' if reap else 'OFF — alert-only (EPM_UNMAPPED_IDLE_REAP=0)'})"
+    )
+    for sid, pid, issue in sorted(candidates):
+        _process_idle_unmapped(
+            sid,
+            pid,
+            issue,
+            now,
+            dry_run,
+            threshold,
+            reap_enabled=reap,
+        )
+
+
 def pod_safety_pass(dry_run: bool, threshold: int, now: float | None = None) -> None:
     """Reconcile RUNNING managed pods against their task STATUS.
 
@@ -6401,6 +7369,407 @@ def campaign_pass(
         )
 
 
+# ─── gate-push + title-reconcile + tick-runaway pass (2026-06-12) ────────────
+#
+# Change 2 of the anti-stall redesign: the phone push at gate-park/blocked
+# transitions and the canonical-title reconcile move OUT of the LLM-priced
+# /issue-tick into this pure-Python pass (the watcher already reads task
+# status every 10 min for free, so gate-push latency IMPROVES from the tick's
+# backstop cadence to ~10 min). The tick-side PushNotification is KEPT for
+# now as a second deduped channel (see the dated removal note in
+# .claude/skills/issue-tick/SKILL.md); this pass dedups its own pushes via a
+# per-issue state file, so the worst case is one duplicate notification per
+# gate transition, never a missed one.
+#
+# Candidates cover CAMPAIGN sessions too (``campaign-<N>.json``
+# registrations, task #586), not just issue sessions. A campaign's one
+# push-relevant user gate is ``blocked`` — which IS campaign-terminal
+# (:data:`CAMPAIGN_TERMINAL`), so the campaign pass stop-then-reaps the
+# registration on the very tick the transition is first observed, BEFORE
+# this pass runs in main(). main() therefore snapshots the campaign
+# candidates via :func:`_campaign_gate_candidates` ahead of campaign_pass
+# and hands them in; enumerating here after the reap would structurally
+# miss the campaign's only gate push.
+#
+# The ISSUE-side registrations have the identical race: ``awaiting_promotion``
+# — the most common user gate — is in :data:`TERMINAL`, so the respawn pass's
+# :func:`_process_entry` deletes ``issue-<N>.json`` on the first daemon-up
+# tick that observes the park, before this pass runs. The cwd fallback can't
+# recover the candidate either (spawn-issue sessions open at repo root, not an
+# ``issue-<N>`` worktree). main() therefore also snapshots
+# ``set(_issue_registrations())`` ahead of the respawn pass and hands it in
+# via ``issue_snapshot``; without it the awaiting_promotion push fired only
+# when the daemon happened to be down on the transition tick.
+#
+# Also owns the §4 runaway parachute: `tick_triage.py` writes
+# ``tick-runaway-<N>.flag`` on the 3rd consecutive TEARDOWN-verdict tick
+# (TERMINAL or GATE-TRANSITION — terminal statuses, over-cap plan_pending,
+# stranded campaign crons; cleared by the triage on any streak reset).
+# CRON-TEARDOWN keeps whiffing — the #501 class, 1,951 wasted ticks; this
+# pass force-stops the flagged issue's session(s), which kills the
+# session-scoped cron with them. The force-stop reuses the session-reconcile
+# predicate's guards (DONE-status only, no live follow-up, no RUNNING pod, no
+# keep-running tag) but skips the 2h-idle + 2-miss accumulation — three
+# consecutive teardown-verdict ticks are already the corroboration.
+
+# Per-issue state at ``~/.workflow-autonomous/gate-notify-<N>.json``: the last
+# status this pass observed (transition detection + push dedup). In the
+# terminal-status GC sweep set (reaped at completed/archived).
+GATE_NOTIFY_STATE_PREFIX = "gate-notify-"
+
+# User-gate statuses for the push channel. ``plan_pending`` is INCLUDED only
+# when the over-cap spend-approval marker confirms it is the user gate (an
+# under-cap plan_pending is an in-skill park) — see tick_triage's
+# plan_pending_over_cap, shared with the /issue-tick triage.
+GATE_PUSH_STATUSES = frozenset({"awaiting_promotion", "blocked"})
+
+# The runaway force-stop acts ONLY on the session-reconcile DONE set. A
+# ``blocked`` task also writes runaway flags (it is tick-TERMINAL), but its
+# session may have the user live-parked in it — alert loudly, never stop
+# (same posture as the reconcile + zombie passes).
+RUNAWAY_FORCE_STOP_STATUSES = frozenset({"awaiting_promotion", "completed", "archived"})
+
+# Push channel: the same Telegram helper every sibling-project cron nudge uses —
+# proven Python-callable path to the phone (the harness PushNotification tool
+# only exists inside an LLM turn). Override for tests via
+# EPM_TELEGRAM_PUSH_SCRIPT.
+# ADOPTION NOTE: point EPM_TELEGRAM_PUSH_SCRIPT (or this default) at any
+# executable that takes the message as $1 (Telegram, Slack webhook, ntfy,
+# ...). Missing script = loud no-op; the pass never depends on the push.
+_TELEGRAM_PUSH_SCRIPT_DEFAULT = Path.home() / "sibling-project" / "scripts" / "notif_enqueue.sh"
+
+
+def _telegram_push_script() -> Path:
+    override = os.environ.get("EPM_TELEGRAM_PUSH_SCRIPT", "").strip()
+    return Path(override) if override else _TELEGRAM_PUSH_SCRIPT_DEFAULT
+
+
+def _telegram_push(msg: str, dry_run: bool) -> bool:
+    """Best-effort phone notification via the sibling-project DIGEST queue.
+
+    Routed through notif_enqueue.sh (NOTIF_CAT=research), NOT a standalone
+    telegram_push.sh send, since 2026-06-12 — the user got raw per-transition
+    gate pushes (#472/#504 "open to promote") and asked "Why is this being
+    sent here": gate notifications are observability, not time-critical, so
+    they belong in the 3x/day sibling-project digest per its notification-batching
+    rules. notif_enqueue.sh has the same arg interface as telegram_push.sh
+    by design. The EPM_TELEGRAM_PUSH_SCRIPT override still wins if set.
+
+    Failure is logged LOUDLY but never raises and never crashes the pass —
+    the push is observability, and the tick-side PushNotification remains the
+    second channel. Returns True on a confirmed enqueue."""
+    script = _telegram_push_script()
+    if dry_run:
+        print(f"  [dry-run] would telegram-push: {msg[:120]}")
+        return False
+    if not script.is_file():
+        print(f"  WARNING: telegram push script missing at {script}; push dropped", file=sys.stderr)
+        return False
+    try:
+        res = subprocess.run(
+            ["bash", str(script), msg],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env={**os.environ, "NOTIF_CAT": "research"},
+        )
+    except (subprocess.SubprocessError, OSError) as e:
+        print(f"  WARNING: telegram push failed: {e}", file=sys.stderr)
+        return False
+    if res.returncode != 0:
+        print(
+            f"  WARNING: telegram push failed: {(res.stderr or res.stdout).strip()[:200]}",
+            file=sys.stderr,
+        )
+        return False
+    return True
+
+
+def _gate_notify_state_path(issue: int) -> Path:
+    return AUTONOMOUS_REGISTRY_DIR / f"{GATE_NOTIFY_STATE_PREFIX}{issue}.json"
+
+
+def _load_gate_notify_state(issue: int) -> dict:
+    path = _gate_notify_state_path(issue)
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _save_gate_notify_state(issue: int, *, last_status: str) -> None:
+    """Atomic temp+rename persist of the last observed status (the
+    transition key for both the push and the title reconcile)."""
+    AUTONOMOUS_REGISTRY_DIR.mkdir(parents=True, exist_ok=True)
+    dest = _gate_notify_state_path(issue)
+    tmp = dest.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps({"last_status": last_status, "ts": time.time()}))
+    tmp.replace(dest)
+
+
+def decide_gate_push(status: str | None, last_status: str | None, over_cap: bool) -> bool:
+    """Pure push decision: fire exactly once per transition INTO a user gate.
+
+    ``last_status`` is this pass's own previous observation (``None`` =
+    never observed — counts as a transition, so a gate reached during
+    watcher downtime still pushes once; a duplicate beats a missed one).
+    One-shot per transition: the caller persists ``last_status`` in the same
+    pass whether or not the send succeeded (the tick-side push is the second
+    channel; retrying a failing Telegram send every 10 min would spam the
+    log without a user-visible benefit)."""
+    if not isinstance(status, str) or status == last_status:
+        return False
+    return status in GATE_PUSH_STATUSES or (status == "plan_pending" and over_cap)
+
+
+def _task_title(issue: int) -> str:
+    """Task frontmatter title (slug for push messages), '' on any failure."""
+    try:
+        out = subprocess.run(
+            ["uv", "run", "python", "scripts/task.py", "view", str(issue), "--json"],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        data = json.loads(out.stdout) if out.returncode == 0 else {}
+    except (subprocess.SubprocessError, OSError, json.JSONDecodeError):
+        return ""
+    title = data.get("title") or (data.get("frontmatter") or {}).get("title")
+    return title.strip()[:45] if isinstance(title, str) else ""
+
+
+def _gate_push_message(issue: int, status: str, events: list[dict], over_cap: bool) -> str:
+    """Mirror the /issue-tick 3d message shapes (kept under ~200 chars)."""
+    slug = _task_title(issue)
+    head = f"#{issue} {slug}".rstrip()  # no double space when the title read failed
+    if status == "awaiting_promotion":
+        msg = f"{head} · clean-result ready — open to promote"
+    elif status == "plan_pending" and over_cap:
+        cap = os.environ.get("EPM_PLAN_AUTOAPPROVE_GPU_HOURS", "100")
+        msg = f"{head} parked at plan_pending — over {cap} GPU-h cap; open to approve"
+    else:  # blocked
+        reason = ""
+        for row in reversed(events):
+            if isinstance(row, dict) and str(row.get("kind", "")).startswith("epm:failure"):
+                note = row.get("note")
+                reason = note.strip().splitlines()[0][:80] if isinstance(note, str) else ""
+                break
+        msg = f"#{issue} BLOCKED: {reason or 'see latest failure marker'} — open it"
+    return msg[:200]
+
+
+def _refresh_self_report(issue: int, status: str, dry_run: bool) -> None:
+    """Reconcile the canonical title/self-report with the task status —
+    STATUS-TRANSITION-KEYED, never per-pass.
+
+    Constraint (load-bearing): the stalled-detector's signal 1 and the
+    session-reconcile idle check both read the self-report's ``ts`` as an
+    ACTIVITY signal. An unconditional per-pass rewrite would keep that file
+    permanently fresh and structurally disable both passes. A rewrite keyed
+    on a STATUS CHANGE cannot mask a stall: the change itself posts
+    ``epm:status-changed`` (already refreshing the marker-side signal), and
+    a stalled session's status is by definition not changing. Only EXISTING
+    self-reports are updated — creating one for a session that never
+    self-reported would flip the stalled-detector's deliberate None-skip
+    eligibility."""
+    try:
+        from session_progress_report import read_self_report
+    except ImportError:
+        return
+    try:
+        if read_self_report(issue) is None:
+            return
+    except OSError:
+        return
+    cmd = [
+        "uv", "run", "python", "scripts/session_progress_report.py",
+        "--issue", str(issue), "--step", status,
+    ]  # fmt: skip
+    if dry_run:
+        print(f"  [dry-run] would refresh self-report: #{issue} step={status}")
+        return
+    try:
+        res = subprocess.run(cmd, cwd=PROJECT_ROOT, capture_output=True, text=True, timeout=30)
+        if res.returncode != 0:
+            print(
+                f"  WARNING: self-report refresh failed for #{issue}: "
+                f"{(res.stderr or res.stdout).strip()[:200]}",
+                file=sys.stderr,
+            )
+    except (subprocess.SubprocessError, OSError) as e:
+        print(f"  WARNING: self-report refresh failed for #{issue}: {e}", file=sys.stderr)
+
+
+def _runaway_flags() -> list[tuple[int, Path]]:
+    """Enumerate ``tick-runaway-<N>.flag`` files (issue, path) — written by
+    ``tick_triage.py`` on the 3rd consecutive teardown-verdict tick."""
+    if not AUTONOMOUS_REGISTRY_DIR.is_dir():
+        return []
+    out: list[tuple[int, Path]] = []
+    for path in AUTONOMOUS_REGISTRY_DIR.glob("tick-runaway-*.flag"):
+        try:
+            out.append((int(path.stem.removeprefix("tick-runaway-")), path))
+        except ValueError:
+            continue
+    return sorted(out)
+
+
+def _process_runaway_flag(
+    issue: int,
+    flag_path: Path,
+    sids: list[str],
+    running_pod_issues: set[int],
+    daemon_reachable: bool,
+    dry_run: bool,
+) -> None:
+    """Force-stop the flagged issue's session(s) under the reconcile guards.
+
+    Guard order: no-live-session (clear the flag — the session-scoped cron
+    died with its session, runaway over) -> DONE-status only -> no live
+    follow-up -> no RUNNING pod -> no keep-running tag -> daemon up."""
+    if not sids:
+        if daemon_reachable:
+            print(f"  runaway: #{issue} flag present, no live mapped session — clearing flag")
+            if not dry_run:
+                flag_path.unlink(missing_ok=True)
+        return
+    status = _task_status(issue)
+    if status not in RUNAWAY_FORCE_STOP_STATUSES:
+        print(
+            f"  runaway: #{issue} flagged (status={status}) but outside the force-stop "
+            f"set {sorted(RUNAWAY_FORCE_STOP_STATUSES)} — alert only, flag kept",
+            file=sys.stderr,
+        )
+        return
+    if _task_followup_active(issue):
+        print(f"  runaway: #{issue} has a live follow-up signal — skip")
+        return
+    if issue in running_pod_issues:
+        print(f"  runaway: #{issue} has a RUNNING pod — skip (pod-safety pass owns it)")
+        return
+    if _task_keep_running(issue):
+        print(f"  runaway: #{issue} carries keep-running — skip")
+        return
+    if not daemon_reachable:
+        print(f"  runaway: #{issue} eligible but daemon unreachable — retry next pass")
+        return
+    stopped = [sid for sid in sids if _stop_session(sid, dry_run)]
+    if stopped:
+        _post_progress_marker(
+            issue,
+            f"[autonomous_session_watch:runaway] force-stopped {len(stopped)} session(s) "
+            f"({', '.join(stopped)}) — tick_triage recorded >=3 consecutive teardown-verdict "
+            f"ticks, latest at status '{status}' (CRON-TEARDOWN kept whiffing; the #501 "
+            f"runaway class). The session-scoped tick cron dies with the session.",
+            dry_run,
+            label="runaway-stop",
+        )
+    if not dry_run and len(stopped) == len(sids):
+        flag_path.unlink(missing_ok=True)
+
+
+def _campaign_gate_candidates() -> set[int]:
+    """Issue numbers of ``campaign-<N>.json`` registrations — gate-push
+    candidates alongside the issue registrations.
+
+    main() snapshots this BEFORE :func:`campaign_pass`: the campaign GC
+    stop-then-reaps a terminal campaign's registration on the very tick the
+    transition is first observed, and ``blocked`` — the one push-relevant
+    user gate in the campaign lifecycle — IS campaign-terminal
+    (:data:`CAMPAIGN_TERMINAL`), so enumerating after campaign_pass would
+    structurally miss the campaign's only gate push."""
+    return {
+        entry["issue"]
+        for _path, entry in _campaign_registry_entries()
+        if isinstance(entry.get("issue"), int)
+    }
+
+
+def gate_push_pass(
+    dry_run: bool,
+    *,
+    daemon_reachable: bool,
+    live_ids: set[str] | None = None,
+    now: float | None = None,
+    campaign_issues: set[int] | None = None,
+    issue_snapshot: set[int] | None = None,
+) -> None:
+    """Per-pass gate push + title reconcile + tick-runaway force-stop.
+
+    Candidates = issues with live mapped sessions UNION registered issues
+    UNION campaign registrations (registrations survive brief daemon flaps;
+    the live mapping catches manual/worktree-cwd sessions).
+    ``campaign_issues`` is main()'s pre-campaign_pass snapshot — the campaign
+    GC reaps a ``blocked`` (campaign-terminal) registration before this pass
+    runs, so a fresh enumeration here would miss that transition; ``None``
+    (direct callers/tests) falls back to enumerating now. ``issue_snapshot``
+    is the sibling pre-RESPAWN-pass snapshot of ``_issue_registrations()``
+    keys — ``awaiting_promotion`` is respawn-TERMINAL, so ``_process_entry``
+    reaps ``issue-<N>.json`` on the first daemon-up tick observing the park;
+    same ``None`` fallback. Transition
+    detection is per-issue via the ``gate-notify-<N>.json`` state file and
+    needs no daemon; the title reconcile and force-stop arms are
+    daemon-dependent and degrade to skip/retry when it is unreachable."""
+    live = set()
+    by_issue: dict[int, set[str]] = {}
+    if daemon_reachable:
+        live = live_ids if live_ids is not None else _live_session_ids()
+        meta = _load_session_meta()
+        session_paths = {sid: (m or {}).get("path") for sid, m in meta.items()}
+        by_issue = _map_sessions_to_issues(live, _load_session_issue_map(), session_paths)
+    if campaign_issues is None:
+        campaign_issues = _campaign_gate_candidates()
+    if issue_snapshot is None:
+        issue_snapshot = set(_issue_registrations())
+    candidates = sorted(set(by_issue) | issue_snapshot | campaign_issues)
+    if candidates:
+        print(f"gate-push: {len(candidates)} candidate issue(s)")
+    for issue in candidates:
+        status = _task_status(issue)
+        if status is None or status in TERMINAL_FOR_GC:
+            # completed/archived: never a push target, no title value — and
+            # acting here would CHURN against the terminal-status GC (it
+            # reaps gate-notify-<N>.json each tick, so this pass would
+            # re-create it + re-refresh the self-report every pass, keeping
+            # the self-report permanently fresh and structurally disabling
+            # the session-reconcile idle signal for done tasks).
+            continue
+        last_status = _load_gate_notify_state(issue).get("last_status")
+        if last_status == status:
+            continue  # steady state — nothing transitioned
+        events = _task_events(issue)
+        over_cap = status == "plan_pending" and plan_pending_over_cap(events)
+        if decide_gate_push(status, last_status, over_cap):
+            msg = _gate_push_message(issue, status, events, over_cap)
+            sent = _telegram_push(msg, dry_run)
+            print(
+                f"  gate-push: #{issue} {last_status or 'unknown'} -> {status} "
+                f"({'sent' if sent else 'push not confirmed'})"
+            )
+        _refresh_self_report(issue, status, dry_run)
+        if not dry_run:
+            _save_gate_notify_state(issue, last_status=status)
+    flags = _runaway_flags()
+    if not flags:
+        return
+    running_pod_issues = {
+        issue for issue, _pod_id, _name in (_running_managed_issue_pods(caller="gate-push") or [])
+    }
+    for issue, flag_path in flags:
+        _process_runaway_flag(
+            issue,
+            flag_path,
+            sorted(by_issue.get(issue, set())),
+            running_pod_issues,
+            daemon_reachable,
+            dry_run,
+        )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
@@ -6451,6 +7820,14 @@ def main(argv: list[str] | None = None) -> int:
     # Probe reachability ONCE per main() invocation and reuse the result
     # everywhere so a flap mid-tick can't make different passes disagree
     # about daemon state (and so we don't re-pay the probe cost).
+    #
+    # Snapshot issue gate-push candidates BEFORE the respawn pass: on the
+    # first daemon-up tick that observes a TERMINAL park (`awaiting_promotion`
+    # IS in TERMINAL), _process_entry deletes the issue-<N>.json registration,
+    # so the gate-push pass below would otherwise miss the most common user
+    # gate (the cwd fallback can't recover it — spawn-issue sessions open at
+    # repo root). Sibling of the campaign snapshot further down.
+    issue_gate_candidates = set(_issue_registrations())
     daemon_reachable = _daemon_reachable()
     live_ids: set[str] = set()
     if daemon_reachable:
@@ -6466,6 +7843,13 @@ def main(argv: list[str] | None = None) -> int:
             "(won't mass-respawn on an outage). Pod-safety + stalled-"
             "detector still run; stalled-detector falls back to alert-only."
         )
+
+    # Snapshot campaign gate-push candidates BEFORE campaign_pass: its
+    # terminal GC stop-then-reaps a `blocked` campaign's registration on the
+    # first tick the transition is observed (`blocked` IS campaign-terminal),
+    # so the gate-push pass below would otherwise never see the campaign's
+    # only user-gate transition.
+    campaign_gate_candidates = _campaign_gate_candidates()
 
     # Campaign pass: crash-recovery + progress watchdog + budget backstop for
     # /campaign sessions (campaign-<N>.json entries, task #586). Runs right
@@ -6526,13 +7910,67 @@ def main(argv: list[str] | None = None) -> int:
         live_ids=live_ids if daemon_reachable else None,
     )
 
+    # Gate-push + title-reconcile + tick-runaway: phone push on gate-park /
+    # blocked transitions (moved out of the LLM-priced /issue-tick — the
+    # watcher's 10-min cadence beats the tick's backstop interval), a
+    # status-transition-keyed self-report reconcile (NEVER per-pass — an
+    # unconditional rewrite would defeat the stalled-detector's + reconcile
+    # pass's self-report staleness signals), and the tick-runaway force-stop
+    # parachute (#501 class). Transition detection is daemon-independent;
+    # the stop/title arms degrade when the daemon is down. Runs BEFORE the
+    # reaper snapshot below so a runaway force-stop is already reflected in
+    # the session set the reapers see.
+    gate_push_pass(
+        args.dry_run,
+        daemon_reachable=daemon_reachable,
+        live_ids=live_ids if daemon_reachable else None,
+        campaign_issues=campaign_gate_candidates,
+        issue_snapshot=issue_gate_candidates,
+    )
+
+    # The two session reapers below run back-to-back with no mutating pass
+    # between them, so they share ONE /list snapshot via their `children=`
+    # parameter — same probe-once rationale as daemon_reachable above: one
+    # fewer daemon RPC per tick, and the two passes can never disagree about
+    # the session set. Deliberately NOT reused from the top-of-main
+    # `_live_session_ids()` fetch: the respawn / stalled / reconcile /
+    # gate-push passes in between mutate the session set, and the reapers
+    # should see the post-mutation view. A session the zombie pass stops
+    # mid-tick may linger in the shared snapshot for the idle pass; if its
+    # wrapper pid is already gone the TTY guard fails toward keep
+    # (unreadable /proc -> True -> action "clear"), and if it is still
+    # dying the worst case is a redundant, sid-targeted stop of an
+    # already-stopped session — never a wrong kill.
+    reaper_children = _live_children() if daemon_reachable else None
+
     # Zombie-wrapper: stop daemon-tracked project sessions whose process tree has
     # carried NO inner Claude process for >= threshold checks AND >= the 2h
     # grace window — regardless of issue mapping (the class every registry-/
     # cwd-keyed pass above structurally misses: 25 unmapped "running" zombies
     # accumulated by 2026-06-11). PM-registered sids, non-project cwds, and
     # mapped-at-active-status sessions are never touched. Daemon-gated.
-    zombie_wrapper_pass(args.dry_run, args.threshold, daemon_reachable=daemon_reachable)
+    zombie_wrapper_pass(
+        args.dry_run,
+        args.threshold,
+        daemon_reachable=daemon_reachable,
+        children=reaper_children,
+    )
+
+    # Idle-unmapped: stop unmapped project sessions whose Claude transcript has
+    # been idle >= the 12h reap window on >= threshold consecutive checks —
+    # the live-but-idle complement of the zombie pass (which needs a DEAD
+    # inner Claude) and the unmapped complement of session-reconcile (which
+    # needs an issue mapping). The 2026-06-12 class: 25 idle unmapped
+    # sessions, each with a live Claude + ~8 MCP children, ~23 GB RSS total.
+    # PM-registered sids, non-project cwds, issue-mapped sessions, TTY-holding
+    # wrappers, and unresolvable-transcript sessions are never touched.
+    # Daemon-gated.
+    idle_unmapped_pass(
+        args.dry_run,
+        args.threshold,
+        daemon_reachable=daemon_reachable,
+        children=reaper_children,
+    )
 
     # GC: reap per-issue state files whose tasks are completed/archived OR
     # whose status is unresolvable AND mtime is past the age backstop.
